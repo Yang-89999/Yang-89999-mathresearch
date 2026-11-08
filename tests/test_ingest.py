@@ -190,7 +190,7 @@ def test_identifier_normalisation():
 def test_atom_parsing_and_search_query():
     fetch = fake_fetch()
     hits = ax.arxiv_search("linearization equations", max_results=5, fetch=fetch)
-    assert "search_query=all%3Alinearization+equations" in fetch.calls[0]
+    assert "search_query=all%3Alinearization+AND+all%3Aequations" in fetch.calls[0]
     assert len(hits) == 1
     m = hits[0]
     assert m.identifier == "2301.00001" and m.title == "Linearization Equations for C*" and m.year == 2023
@@ -318,3 +318,48 @@ def test_cli_ingest_file_and_units_search(tmp_path, capsys):
     assert "[unit_" in out and "bilinear" in out
     assert main(["--dir", str(tmp_path), "status"]) == 0
     assert "units        5" in capsys.readouterr().out
+
+
+# -- blocked downloads and forced re-ingest -----------------------------------------
+
+def test_eprint_pdf_blocked_falls_back_to_metadata_and_abstract(tmp_path):
+    import urllib.error
+
+    base = fake_fetch()
+
+    def fetch(url):
+        if url.endswith("2024/123.pdf"):
+            raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+        if url.endswith("2024/123"):
+            return (b'<html><head><meta name="citation_title" content="Memory Checking"></head><body>'
+                    b'<h5 class="mt-3">Abstract</h5><p style="x">We prove a <b>tight</b> lower bound.\r\n\r\nMore.</p>'
+                    b'</body></html>')
+        return base(url)
+
+    conn = db.connect(tmp_path / "r.db")
+    res = ingest.ingest_reference(conn, "2024/123", tmp_path, fetch=fetch, delay=0)
+    assert res.units == 1 and res.kinds == {"remark": 1} and res.format == "html"
+    assert "refused the PDF download" in res.note and "ingest file" in res.note
+    src = store.get(conn, "sources", res.source_id)
+    assert src["format"] == "html" and src["path"] is None and src["title"] == "Memory Checking"
+    unit = store.select(conn, "units")[0]
+    assert unit["statement"] == "We prove a tight lower bound. More." and unit["title"] == "Abstract"
+
+
+def test_force_reingest_reuses_the_source_row(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    first = ingest.ingest_arxiv(conn, "2301.00001", tmp_path, fetch=fake_fetch(), delay=0)
+    second = ingest.ingest_arxiv(conn, "2301.00001", tmp_path, fetch=fake_fetch(), delay=0, force=True)
+    assert second.source_id == first.source_id and not second.already_present
+    assert db.table_counts(conn)["sources"] == 1 and db.table_counts(conn)["units"] == 5
+    assert set(second.unit_ids).isdisjoint(first.unit_ids)  # units were rebuilt
+
+
+def test_text_heuristic_ignores_prose_references_and_handles_pdf_layout():
+    text = ("By Lemma 2.1 the claim follows for all n.  Lemma 2.2 The polynomial f is a permutation of F if and "
+            "only if gcd(n, q-1) = 1.  Theorem 3 [12] Every C* public key admits n linearization equations. "
+            "Proof. See [12].  Remark 4 lowercase start is not a statement")
+    units = extract_units_from_text(text)
+    assert [(u.kind, u.label) for u in units] == [("lemma", "Lemma 2.2"), ("theorem", "Theorem 3")]
+    assert units[0].statement.startswith("The polynomial f") and units[0].statement.endswith("= 1.")
+    assert units[1].statement == "Every C* public key admits n linearization equations."

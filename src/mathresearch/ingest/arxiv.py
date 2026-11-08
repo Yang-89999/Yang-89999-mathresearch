@@ -33,7 +33,7 @@ _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 
 def http_fetch(url: str, timeout: float = 60.0) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https/http to fixed hosts)
         return resp.read()
 
@@ -134,7 +134,10 @@ def arxiv_search(query: str, max_results: int = 10, fetch: Fetch = http_fetch,
     phrase is searched in all fields."""
     q = query.strip()
     if not re.search(r"\b(all|ti|abs|au|cat|co|jr|rn|id):", q):
-        q = "all:" + q
+        # Bare phrase: require every word (arXiv ORs loose words after the first field).
+        # Quoted phrases and hyphenated names stay whole.
+        terms = re.findall(r'"[^"]+"|\S+', q)
+        q = " AND ".join("all:" + t for t in terms if t.upper() not in ("AND", "OR", "ANDNOT"))
     params = urllib.parse.urlencode({"search_query": q, "max_results": max(1, min(int(max_results), 50)),
                                      "sortBy": sort_by, "sortOrder": "descending"})
     return _parse_atom(fetch(f"{ARXIV_API}?{params}"))
@@ -212,6 +215,11 @@ def download_arxiv_source(arxiv_id: str, dest: Path, fetch: Fetch = http_fetch) 
 
 _META_TAG = re.compile(r'<meta\s+name="([^"]+)"\s+content="([^"]*)"', re.IGNORECASE)
 _HTML_TITLE = re.compile(r"<title>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_ABSTRACT = re.compile(r"<h\d[^>]*>\s*Abstract\s*</h\d>\s*<p[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
+
+
+class BlockedError(RuntimeError):
+    """The site refused an automated download (bot check or access reservation)."""
 
 
 def eprint_metadata(eprint_id: str, fetch: Fetch = http_fetch) -> PaperMeta:
@@ -229,14 +237,28 @@ def eprint_metadata(eprint_id: str, fetch: Fetch = http_fetch) -> PaperMeta:
     authors = metas.get("citation_author") or []
     date = (metas.get("citation_publication_date") or metas.get("citation_online_date") or [""])[0]
     year = int(date[:4]) if date[:4].isdigit() else int(eprint_id[:4])
+    m = _ABSTRACT.search(page)
+    summary = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(1)))).strip() if m else ""
     return PaperMeta(identifier=eprint_id, service="eprint", title=title, authors=authors, year=year,
-                     url=EPRINT_PAGE.format(id=eprint_id))
+                     summary=summary, url=EPRINT_PAGE.format(id=eprint_id))
 
 
 def download_eprint_pdf(eprint_id: str, dest: Path, fetch: Fetch = http_fetch) -> Path:
+    """Download the PDF. ePrint serves PDFs behind a browser check that an automated client is
+    not meant to pass; that surfaces as ``BlockedError`` so callers can fall back to metadata."""
+    import urllib.error
+
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / "paper.pdf"
-    path.write_bytes(fetch(EPRINT_PDF.format(id=eprint_id)))
+    try:
+        data = fetch(EPRINT_PDF.format(id=eprint_id))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 429, 503):
+            raise BlockedError(f"eprint.iacr.org refused the PDF download (HTTP {exc.code})") from exc
+        raise
+    if not data.startswith(b"%PDF"):
+        raise BlockedError("eprint.iacr.org returned a page instead of the PDF (browser check)")
+    path.write_bytes(data)
     return path
 
 

@@ -54,6 +54,22 @@ def find_source(conn: sqlite3.Connection, service: str, identifier: str) -> dict
     return rows[0] if rows else None
 
 
+def _reset_source(conn: sqlite3.Connection, service: str, identifier: str) -> str | None:
+    """For a forced re-ingest: drop the existing source's units and return its id to reuse."""
+    existing = find_source(conn, service, identifier)
+    if not existing:
+        return None
+    conn.execute("DELETE FROM units WHERE source_id = ?", (existing["id"],))
+    return existing["id"]
+
+
+def _upsert_source(conn: sqlite3.Connection, source_id: str | None, **row: Any) -> str:
+    if source_id is None:
+        return store.insert(conn, "sources", **row)
+    store.update(conn, "sources", source_id, **row)
+    return source_id
+
+
 def _existing_result(conn: sqlite3.Connection, src: dict[str, Any]) -> IngestResult:
     units = store.select(conn, "units", "source_id = ?", (src["id"],), order="rowid")
     kinds = Counter(u["kind"] for u in units)
@@ -155,7 +171,10 @@ def ingest_arxiv(conn: sqlite3.Connection, ref: str, workspace: Path, *, domains
     arxiv_id = ax.normalize_arxiv_id(ref)
     if not arxiv_id:
         raise ValueError(f"not an arXiv identifier: {ref!r}")
-    if not force:
+    reuse_id = None
+    if force:
+        reuse_id = _reset_source(conn, "arxiv", arxiv_id)
+    else:
         existing = find_source(conn, "arxiv", arxiv_id)
         if existing:
             return _existing_result(conn, existing)
@@ -168,9 +187,9 @@ def ingest_arxiv(conn: sqlite3.Connection, ref: str, workspace: Path, *, domains
     year = meta.year if meta else None
     identifiers = meta.identifiers() if meta else {"arxiv": arxiv_id}
     url = ax.ARXIV_ABS.format(id=arxiv_id)
-    source_id = store.insert(conn, "sources", kind="paper", title=title, authors=authors or None, year=year,
-                             identifiers=identifiers, url=url, path=str(dest), format=fmt,
-                             venue=", ".join(meta.categories[:3]) if meta else None, domains=domains or None)
+    source_id = _upsert_source(conn, reuse_id, kind="paper", title=title, authors=authors or None, year=year,
+                               identifiers=identifiers, url=url, path=str(dest), format=fmt,
+                               venue=", ".join(meta.categories[:3]) if meta else None, domains=domains or None)
     if fmt == "latex":
         return ingest_latex_dir(conn, dest, title=title, domains=domains, source_id=source_id)
     if fmt == "pdf":
@@ -194,17 +213,32 @@ def ingest_eprint(conn: sqlite3.Connection, ref: str, workspace: Path, *, domain
     eprint_id = ax.normalize_eprint_id(ref)
     if not eprint_id:
         raise ValueError(f"not an IACR ePrint identifier: {ref!r}")
-    if not force:
+    reuse_id = None
+    if force:
+        reuse_id = _reset_source(conn, "eprint", eprint_id)
+    else:
         existing = find_source(conn, "eprint", eprint_id)
         if existing:
             return _existing_result(conn, existing)
     meta = ax.eprint_metadata(eprint_id, fetch=fetch)
     ax.polite_sleep(delay)
     dest = workspace / "sources" / "eprint" / eprint_id.replace("/", "_")
-    pdf = ax.download_eprint_pdf(eprint_id, dest, fetch=fetch)
-    source_id = store.insert(conn, "sources", kind="paper", title=meta.title, authors=meta.authors or None,
-                             year=meta.year, identifiers=meta.identifiers(), url=meta.url, path=str(dest),
-                             format="pdf", venue="IACR ePrint", domains=domains or None)
+    try:
+        pdf: Path | None = ax.download_eprint_pdf(eprint_id, dest, fetch=fetch)
+    except ax.BlockedError as exc:
+        pdf, blocked = None, str(exc)
+    else:
+        blocked = ""
+    source_id = _upsert_source(conn, reuse_id, kind="paper", title=meta.title, authors=meta.authors or None,
+                               year=meta.year, identifiers=meta.identifiers(), url=meta.url,
+                               path=str(pdf) if pdf else None, format="pdf" if pdf else "html",
+                               venue="IACR ePrint", domains=domains or None)
+    if pdf is None:
+        units = [LatexUnit(kind="remark", env="abstract", statement=meta.summary, title="Abstract")] \
+            if meta.summary else []
+        note = (f"{blocked}; stored title, authors and abstract only. To index the full text, download the PDF "
+                f"in a browser and run: mathresearch ingest file <paper.pdf> --title \"{meta.title[:60]}\"")
+        return _finish(conn, source_id, meta.title, "html", units, domains, note=note)
     try:
         text = pdf_to_text(pdf)
     except ImportError:
