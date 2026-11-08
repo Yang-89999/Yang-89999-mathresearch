@@ -82,7 +82,7 @@ def get(conn: sqlite3.Connection, table: str, id_: str) -> dict[str, Any] | None
 
 
 def select(conn: sqlite3.Connection, table: str, where: str = "1=1", params: Iterable[Any] = (),
-           order: str = "created_at", limit: int | None = None) -> list[dict[str, Any]]:
+           order: str = "rowid", limit: int | None = None) -> list[dict[str, Any]]:
     sql = f"SELECT * FROM {table} WHERE {where} ORDER BY {order}"
     if limit is not None:
         sql += f" LIMIT {int(limit)}"
