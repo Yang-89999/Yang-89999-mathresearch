@@ -27,7 +27,8 @@ Rules:
    knowledge base lacks what you need, open a 'learn' question (blocks_parent: true when you cannot continue
    without it) instead of guessing.
 2. Attack before you believe. A hardness claim without an experiment is at most a hypothesis. Use run_script
-   for every computational claim and cite the experiment id as evidence.
+   for every computational claim, run_attack to measure how standard attacks scale against a problem family,
+   and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence.
 3. Check the catalog. Before proposing a candidate problem, list the known problems and attacks and say which
    known problem it most resembles or reduces to. Disguised versions of MQ, MinRank, isomorphism of
    polynomials, syndrome decoding, LWE or tensor isomorphism are not discoveries.

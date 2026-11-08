@@ -1,0 +1,215 @@
+# Seed catalog of attack techniques. `implementation` names an attack class in mathresearch.lab.attacks
+# when the lab can run it; the rest are reference entries the workers reason about.
+
+- id: atk_exhaustive_search
+  name: Exhaustive search
+  family: generic
+  exploits: nothing; the baseline q^n cost
+  applies_to: [prob_known_mq, prob_known_matsumoto_imai, prob_known_hfe, prob_known_uov]
+  complexity: q^n evaluations
+  implementation: exhaustive_search
+  refs: []
+
+- id: atk_linearization
+  name: Linearization
+  family: algebraic
+  exploits: more equations than monomials (m >= n(n+3)/2)
+  applies_to: [prob_known_mq]
+  complexity: polynomial in n once m is quadratic in n
+  implementation: linearization
+  refs: ["Kipnis, Shamir 1999 (relinearization extends it to m >= eps n^2)"]
+
+- id: atk_relinearization
+  name: Relinearization
+  family: algebraic
+  exploits: polynomial relations among the linearized monomial variables
+  applies_to: [prob_known_mq]
+  complexity: polynomial for m >= eps n^2, eps around 0.1
+  refs: ["Kipnis, Shamir 1999 Crypto"]
+
+- id: atk_xl
+  name: XL (eXtended Linearization)
+  family: algebraic
+  exploits: multiplying equations by monomials up to degree D to create an overdetermined linear system
+  applies_to: [prob_known_mq]
+  complexity: exponential in n for m ~ n; competitive with F4 for very overdetermined systems
+  refs: ["Courtois, Klimov, Patarin, Shamir 2000 Eurocrypt", "Ars, Faugere, Imai, Kawazoe, Sugita 2004 (XL vs Groebner)"]
+
+- id: atk_f4_f5_groebner
+  name: Groebner basis (F4 / F5)
+  family: algebraic
+  exploits: low degree of regularity; algebraic structure in the central map
+  applies_to: [prob_known_mq, prob_known_hfe, prob_known_uov, prob_known_minrank, prob_known_ip]
+  complexity: O(binom(n + d_reg, d_reg)^omega); d_reg ~ n/ (2 ... ) for random systems, bounded for HFE
+  implementation: groebner_sage
+  requires: [sage]
+  refs: ["Faugere 1999 (F4)", "Faugere 2002 ISSAC (F5)", "Bardet, Faugere, Salvy 2004 (degree of regularity)"]
+
+- id: atk_hybrid_bfp
+  name: Hybrid approach (guess then Groebner)
+  family: algebraic
+  exploits: trading exhaustive search over k variables for cheaper Groebner computations
+  applies_to: [prob_known_mq]
+  complexity: q^k times Groebner cost on n - k variables; optimal k depends on q
+  refs: ["Bettale, Faugere, Perret 2009 JMC"]
+
+- id: atk_patarin_linearization_equations
+  name: Patarin's linearization equations
+  family: structural
+  exploits: bilinear relations between input and output induced by the monomial central map x^(1+q^theta)
+  applies_to: [prob_known_matsumoto_imai]
+  complexity: polynomial, O(n^6)
+  implementation: patarin_linearization_equations
+  refs: ["Patarin 1995 Crypto"]
+
+- id: atk_kipnis_shamir_minrank
+  name: Kipnis-Shamir MinRank attack on HFE
+  family: structural
+  exploits: the low rank of the central map's quadratic form over the extension field
+  applies_to: [prob_known_hfe, prob_known_minrank]
+  complexity: MinRank with rank about log_q D; polynomial for fixed D via Groebner on the KS modelling
+  refs: ["Kipnis, Shamir 1999 Crypto", "Bettale, Faugere, Perret 2013 (KS modelling complexity)"]
+
+- id: atk_minors_modelling
+  name: MinRank via minors modelling
+  family: algebraic
+  exploits: vanishing of all (r+1)-minors of the combination
+  applies_to: [prob_known_minrank]
+  complexity: Groebner on determinantal ideals; well understood degree of regularity
+  refs: ["Faugere, Levy-dit-Vehel, Perret 2008 Crypto", "Faugere, Safey El Din, Spaenlehauer 2010"]
+
+- id: atk_support_minors
+  name: Support minors modelling
+  family: algebraic
+  exploits: MinRank reformulated so that linearization suffices at low degree
+  applies_to: [prob_known_minrank, prob_known_hfe, prob_known_rainbow]
+  complexity: best known MinRank solver for cryptographic parameters
+  refs: ["Bardet, Bros, Cabarcas, Gaborit, Perlner, Smith-Tone, Tillich, Verbel 2020 Asiacrypt"]
+
+- id: atk_kipnis_shamir_uov
+  name: Kipnis-Shamir attack on Oil and Vinegar
+  family: structural
+  exploits: the oil subspace is invariant under products of public quadratic forms when v = m
+  applies_to: [prob_known_uov]
+  complexity: polynomial for balanced OV; q^(v-m) poly(n) for UOV
+  refs: ["Kipnis, Shamir 1998 Crypto", "Kipnis, Patarin, Goubin 1999 Eurocrypt"]
+
+- id: atk_reconciliation
+  name: Reconciliation attack
+  family: algebraic
+  exploits: solving for the oil subspace basis vector by vector
+  applies_to: [prob_known_uov, prob_known_rainbow]
+  complexity: MQ system in v variables per step
+  refs: ["Ding, Yang, Chen, Chen, Cheng 2008 (Rainbow band separation)"]
+
+- id: atk_beullens_intersection
+  name: Intersection attack
+  family: structural
+  exploits: the intersection of images of the oil space under several public maps
+  applies_to: [prob_known_uov, prob_known_rainbow]
+  complexity: beats Kipnis-Shamir when v < 2m
+  refs: ["Beullens 2021 Eurocrypt"]
+
+- id: atk_beullens_rectangular_minrank
+  name: Rectangular MinRank attack
+  family: structural
+  exploits: a rectangular MinRank instance hidden in Rainbow's layered structure
+  applies_to: [prob_known_rainbow]
+  complexity: broke Rainbow NIST level I in 53 hours on a laptop
+  refs: ["Beullens 2022 Crypto"]
+
+- id: atk_groebner_ip
+  name: Algebraic attacks on polynomial isomorphism
+  family: algebraic
+  exploits: the equations S o F = G o T are bilinear in the unknown maps; IP1S collapses to linear algebra
+  applies_to: [prob_known_ip, prob_known_tensor_isomorphism]
+  complexity: polynomial for IP1S in most cases; exponential for IP with two secrets at good parameters
+  refs: ["Faugere, Perret 2006", "Bouillaguet, Faugere, Fouque, Perret 2011 PKC"]
+
+- id: atk_graph_theoretic_ati
+  name: Graph-theoretic attacks on alternating trilinear forms
+  family: combinatorial
+  exploits: invariants of points (rank of the induced bilinear form) used to match orbits
+  applies_to: [prob_known_tensor_isomorphism]
+  complexity: reduced ALTEQ parameters; heuristic
+  refs: ["Beullens 2023 Crypto"]
+
+- id: atk_leon_support_splitting
+  name: Leon's algorithm and support splitting
+  family: combinatorial
+  exploits: low-weight codewords and hull invariants to recover the permutation
+  applies_to: [prob_known_code_equivalence]
+  complexity: exponential in general; polynomial for codes with trivial hull (PEP)
+  refs: ["Leon 1982", "Sendrier 2000", "Beullens 2020 SAC"]
+
+- id: atk_information_set_decoding
+  name: Information set decoding
+  family: combinatorial
+  exploits: a random information set likely free of errors
+  applies_to: [prob_known_syndrome_decoding]
+  complexity: 2^(c w) for the best variants (BJMM, May-Ozerov)
+  refs: ["Prange 1962", "Stern 1989", "Becker, Joux, May, Meurer 2012", "May, Ozerov 2015"]
+
+- id: atk_lattice_reduction_bkz
+  name: Lattice reduction (LLL / BKZ)
+  family: lattice
+  exploits: short vectors in a lattice built from the public key
+  applies_to: [prob_known_lwe, prob_known_sis, prob_known_ntru]
+  complexity: BKZ with block size beta costs about 2^(0.292 beta) with sieving
+  refs: ["Lenstra, Lenstra, Lovasz 1982", "Schnorr, Euchner 1994", "Chen, Nguyen 2011 (BKZ 2.0)", "Becker, Ducas, Gama, Laarhoven 2016"]
+
+- id: atk_arora_ge
+  name: Arora-Ge algebraic attack on LWE
+  family: algebraic
+  exploits: tiny error sets make each sample a low-degree polynomial equation
+  applies_to: [prob_known_lwe]
+  complexity: polynomial when the error has O(1) possible values relative to the number of samples
+  refs: ["Arora, Ge 2011 ICALP", "Albrecht, Cid, Faugere, Fitzpatrick, Perret 2015"]
+
+- id: atk_kuperberg_hidden_shift
+  name: Kuperberg's quantum hidden-shift algorithm
+  family: quantum
+  exploits: an abelian group action gives a hidden-shift (dihedral HSP) problem
+  applies_to: [prob_known_csidh]
+  complexity: quantum subexponential 2^O(sqrt(log N))
+  refs: ["Kuperberg 2005 SIAM J. Comput.", "Childs, Jao, Soukharev 2014", "Bonnetain, Schrottenloher 2020"]
+
+- id: atk_shor_hidden_subgroup
+  name: Shor's algorithm / abelian hidden subgroup
+  family: quantum
+  exploits: period finding in an abelian group (factoring, discrete logs, any abelian HSP)
+  applies_to: []
+  complexity: quantum polynomial
+  refs: ["Shor 1994 FOCS"]
+
+- id: atk_grover
+  name: Grover search
+  family: quantum
+  exploits: nothing structural; quadratic speedup on any search
+  applies_to: [prob_known_mq, prob_known_syndrome_decoding]
+  complexity: square root of the classical search cost
+  refs: ["Grover 1996 STOC"]
+
+- id: atk_meet_in_the_middle
+  name: Meet in the middle
+  family: generic
+  exploits: decomposability of the secret into two halves
+  applies_to: [prob_known_csidh]
+  complexity: O(sqrt(N)) time and memory
+  refs: []
+
+- id: atk_castryck_decru
+  name: Castryck-Decru attack on SIDH
+  family: structural
+  exploits: torsion-point images plus Kani's theorem on isogenies between abelian surfaces
+  applies_to: [prob_known_sidh]
+  complexity: polynomial; SIKE broken in hours
+  refs: ["Castryck, Decru 2023 Eurocrypt", "Maino et al. 2023", "Robert 2023"]
+
+- id: atk_legendre_key_recovery
+  name: Legendre PRF key recovery
+  family: number-theoretic
+  exploits: multiplicative relations among Legendre symbols of shifted keys
+  applies_to: [prob_known_legendre_prf]
+  complexity: O(p^(1/2) / M) with M queries
+  refs: ["Beullens, Beyne, Udovenko, Vitto 2020 ToSC", "Kaluderovic, Kleinjung, Kostic 2020 ANTS"]

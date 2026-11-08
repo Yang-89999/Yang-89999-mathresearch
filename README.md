@@ -76,11 +76,33 @@ Provider adapters live in `mathresearch/providers/`: `anthropic_messages.py`
 encrypted reasoning items replayed). Both use the same strict JSON-schema
 subset, so the write-back schema is defined once.
 
+## The attack lab
+
+A candidate problem advances only through computation. `mathresearch.lab`
+holds **problem families** (a class with `generate`, `forward`, `verify`),
+**attacks** (a class with `run(family, instance, time_limit)`), **sweeps**
+that run an attack over growing sizes and classify the cost curve as
+polynomial-like or exponential-like, and the **ladder** checks that record
+findings and move a problem's status.
+
+```bash
+mathresearch --dir ~/research catalog load          # 16 known problems, 26 attacks with references
+mathresearch lab run --family mq --p 7 --sizes 3,4,5,6
+mathresearch lab run --family matsumoto_imai --attack patarin_linearization_equations --sizes 7,9,11,13
+```
+
+Families so far: `mq` (random quadratic systems over GF(p), planted
+solution) and `matsumoto_imai` (the C* trapdoor over GF(2^n), the known
+answer for the retrodiction test). Attacks: exhaustive search,
+linearization, Patarin's linearization equations, and Gröbner bases through
+SageMath when installed. Workers reach the lab through the `run_attack` and
+`ladder_evaluate` tools.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
 - [x] PR 2: worker loop, provider adapters (OpenAI Responses, Claude Messages), write-back, agenda with lanes
-- [ ] PR 3: attack lab v1 (MQ over finite fields) and seed catalogs
+- [x] PR 3: attack lab v1 (MQ and C* families, four attacks, sweeps, ladder) and seed catalogs
 - [ ] Literature ingestion (arXiv / IACR ePrint LaTeX sources), retrodiction test
 
 The design review and build plan live in the project's design document.

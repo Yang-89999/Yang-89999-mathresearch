@@ -5,6 +5,8 @@
     mathresearch charter show          print the charter as workers see it
     mathresearch run-script FILE       execute a script through the sandbox and record it
     mathresearch run --cycles N        run N research cycles with the configured model provider
+    mathresearch catalog load          load the seed catalogs of known problems and attacks
+    mathresearch lab run --family mq   run attack sweeps from the command line
 """
 
 from __future__ import annotations
@@ -132,6 +134,39 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 1 if failed and failed == len(outcomes) else 0
 
 
+def cmd_catalog_load(args: argparse.Namespace) -> int:
+    from . import catalog
+
+    conn = db.connect(_workspace(args) / DB_FILE)
+    counts = catalog.load(conn)
+    totals = db.table_counts(conn)
+    print(f"inserted {counts['problems']} problems and {counts['attacks']} attacks "
+          f"(catalog now {totals['problems']} problems, {totals['attacks']} attacks)")
+    return 0
+
+
+def cmd_lab_run(args: argparse.Namespace) -> int:
+    from .lab import get_family, sweep
+    from .lab.attacks import applicable, get_attack
+
+    kwargs = {}
+    if args.p:
+        kwargs["p"] = args.p
+    if args.ratio:
+        kwargs["ratio"] = args.ratio
+    family = get_family(args.family, **kwargs)
+    sizes = [int(s) for s in args.sizes.split(",")]
+    attacks = applicable(family) if args.attack == "all" else [get_attack(args.attack)]
+    for attack in attacks:
+        curve = sweep(family, attack, sizes, time_limit=args.seconds)
+        print(f"{attack.name} on {family.name}: growth {curve.growth} exp_slope={curve.exp_slope} "
+              f"poly_degree={curve.poly_degree}")
+        for pt in curve.points:
+            state = "solved" if pt["success"] else ("timeout" if pt["timed_out"] else "failed")
+            print(f"  n={pt['size']:3d} {state:8s} {pt['seconds']:9.4f}s work={pt['work']} {pt.get('notes', '')}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mathresearch", description="Autonomous mathematical research environment")
     p.add_argument("--version", action="version", version=f"mathresearch {__version__}")
@@ -166,6 +201,22 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-steps", type=int, default=12, help="max model calls per worker run")
     s.add_argument("--seed", type=int, help="random seed for lane selection")
     s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("catalog", help="catalog commands")
+    cs = s.add_subparsers(dest="catalog_command", required=True)
+    c = cs.add_parser("load", help="load the seed catalogs of known problems and attacks")
+    c.set_defaults(func=cmd_catalog_load)
+
+    s = sub.add_parser("lab", help="attack lab commands")
+    ls = s.add_subparsers(dest="lab_command", required=True)
+    c = ls.add_parser("run", help="run an attack sweep against a problem family")
+    c.add_argument("--family", required=True)
+    c.add_argument("--attack", default="all")
+    c.add_argument("--sizes", default="4,6,8")
+    c.add_argument("--seconds", type=float, default=20.0, help="time limit per size")
+    c.add_argument("--p", type=int)
+    c.add_argument("--ratio", type=float)
+    c.set_defaults(func=cmd_lab_run)
     return p
 
 
