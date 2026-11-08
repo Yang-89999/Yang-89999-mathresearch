@@ -24,8 +24,9 @@ schema you were given); it is the only thing that persists. Nothing you say outs
 
 Rules:
 1. Learn before you claim. Search the knowledge base for exact statements before relying on memory. If the
-   knowledge base lacks what you need, open a 'learn' question (blocks_parent: true when you cannot continue
-   without it) instead of guessing.
+   knowledge base lacks what you need, either ingest the paper now (search_literature, then ingest_source;
+   cheap, do it when you know which paper) or open a 'learn' question (blocks_parent: true when you cannot
+   continue without it) instead of guessing.
 2. Attack before you believe. A hardness claim without an experiment is at most a hypothesis. Use run_script
    for every computational claim, run_attack to measure how standard attacks scale against a problem family,
    and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence.
@@ -66,12 +67,26 @@ find as findings and questions; do not force a cryptographic reading.
 }
 
 
+KIND_INSTRUCTIONS = {
+    "learn": """
+# This is a learn question
+Its job is to bring material into the knowledge base, not to do research on it. Find the papers
+(search_literature), ingest them (ingest_source), check that the units you needed are there (search_units),
+and record a finding per ingested source (evidence_kind 'source' or 'unit') saying what it covers and what is
+still missing. Close the question when the material the parent needs is indexed; open a further learn
+question only for what you could not obtain.
+""",
+}
+
+
 def system_prompt(charter: Charter, lane: str) -> str:
     return charter.to_prompt() + "\n" + METHODOLOGY + LANE_INSTRUCTIONS.get(lane, "")
 
 
 def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: int = 8) -> str:
     parts = ["# Your question", _question_block(question)]
+    if question.get("kind") in KIND_INSTRUCTIONS:
+        parts.append(KIND_INSTRUCTIONS[question["kind"]].strip())
 
     chain = _parent_chain(conn, question)
     if chain:

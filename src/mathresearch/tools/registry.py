@@ -27,6 +27,8 @@ class ToolContext:
     experiment_ids: list[str] = field(default_factory=list)
     script_timeout: float = 300.0
     script_memory_mb: int = 4096
+    fetch: Callable[[str], bytes] | None = None   # network access for ingestion; None = real HTTP
+    fetch_delay: float = 3.0
 
 
 Executor = Callable[[dict[str, Any], ToolContext], str]
@@ -173,7 +175,95 @@ def _ladder_evaluate(args: dict[str, Any], ctx: ToolContext) -> str:
                       indent=1, default=str)
 
 
+def _domains_arg(args: dict[str, Any], ctx: ToolContext) -> list[str] | None:
+    raw = args.get("domains") or ""
+    domains = [d.strip() for d in str(raw).split(",") if d.strip()]
+    return domains or (ctx.question.get("domains") or None)
+
+
+def _search_literature(args: dict[str, Any], ctx: ToolContext) -> str:
+    from .. import ingest
+    from ..ingest import arxiv as ax
+
+    fetch = ctx.fetch or ax.http_fetch
+    hits = ingest.search(ctx.conn, args["query"], max_results=int(args.get("limit", 8)), fetch=fetch)
+    if not hits:
+        return "arXiv returned no results. Try other terms, the API syntax (ti:, abs:, au:, cat:cs.CR), or an ePrint id."
+    lines = []
+    for h in hits:
+        state = f"already ingested as {h['ingested_source_id']}" if h["ingested_source_id"] else "not ingested"
+        lines.append(f"arXiv:{h['arxiv_id']} ({h['year']}) {h['title']} -- {', '.join(h['authors'][:3])} "
+                     f"[{', '.join(h['categories'])}] ({state})\n  {h['summary'][:300]}")
+    return "\n".join(lines)
+
+
+def _ingest_source(args: dict[str, Any], ctx: ToolContext) -> str:
+    from .. import ingest
+    from ..ingest import arxiv as ax
+
+    fetch = ctx.fetch or ax.http_fetch
+    try:
+        result = ingest.ingest_reference(ctx.conn, args["reference"], ctx.workspace,
+                                         domains=_domains_arg(args, ctx), fetch=fetch, delay=ctx.fetch_delay)
+    except ValueError as exc:
+        return str(exc)
+    except Exception as exc:  # network / parsing failures are information for the model
+        return f"ingestion failed: {type(exc).__name__}: {exc}"
+    text = result.summary()
+    if result.unit_ids:
+        units = [store.get(ctx.conn, "units", uid) for uid in result.unit_ids[:12]]
+        text += "\n" + "\n".join(f"  [{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}: "
+                                 f"{u['statement'][:160]}" for u in units if u)
+        if result.units > 12:
+            text += f"\n  ... {result.units - 12} more; use search_units to find them."
+    if result.units == 0 and not result.already_present:
+        text += ("\nNo theorem-like environments were found. The source is stored; cite it as evidence_kind "
+                 "'source' with the source id and page or section.")
+    return text
+
+
+def _list_sources(args: dict[str, Any], ctx: ToolContext) -> str:
+    rows = store.select(ctx.conn, "sources", order="created_at DESC", limit=int(args.get("limit", 30)))
+    if not rows:
+        return "No sources ingested yet."
+    out = []
+    for r in rows:
+        n = ctx.conn.execute("SELECT COUNT(*) AS n FROM units WHERE source_id = ?", (r["id"],)).fetchone()["n"]
+        ids = r.get("identifiers") or {}
+        ref = ids.get("arxiv") and f"arXiv:{ids['arxiv']}" or ids.get("eprint") and f"ePrint {ids['eprint']}" or ""
+        out.append(f"[{r['id']}] {r['title']} ({r.get('year') or '?'}) {ref} [{r.get('format')}] {n} units")
+    return "\n".join(out)
+
+
 TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
+    "search_literature": (
+        ToolSpec(
+            name="search_literature",
+            description="Search arXiv for papers (title, abstract, authors, categories) and see which are already in "
+                        "the knowledge base. Use it on a 'learn' question before ingesting. Supports the arXiv API "
+                        "syntax: ti:, abs:, au:, cat:cs.CR, AND/OR.",
+            input_schema={"type": "object", "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "description": "1-20 results"}}},
+        ), _search_literature),
+    "ingest_source": (
+        ToolSpec(
+            name="ingest_source",
+            description="Download a paper (arXiv id or URL, or IACR ePrint id like 2024/123) and split it into "
+                        "knowledge units (definitions, theorems, lemmas, algorithms with exact statements and "
+                        "anchors). Returns the source id and the first unit ids. LaTeX sources give exact units; "
+                        "PDFs give heuristic ones.",
+            input_schema={"type": "object", "properties": {
+                "reference": {"type": "string", "description": "e.g. '2301.00001', 'arXiv:math/0601001', "
+                                                              "'https://eprint.iacr.org/2024/123'"},
+                "domains": {"type": "string", "description": "comma-separated domain tags for the units"}}},
+        ), _ingest_source),
+    "list_sources": (
+        ToolSpec(
+            name="list_sources",
+            description="List the papers already ingested into the knowledge base with their unit counts.",
+            input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}},
+        ), _list_sources),
     "run_attack": (
         ToolSpec(
             name="run_attack",
