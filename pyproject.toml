@@ -25,7 +25,7 @@ mathresearch = "mathresearch.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mathresearch = ["schema.sql"]
+mathresearch = ["schema.sql", "catalog/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

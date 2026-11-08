@@ -103,7 +103,103 @@ def _read_question(args: dict[str, Any], ctx: ToolContext) -> str:
     return json.dumps(out, ensure_ascii=False, indent=1, default=str)
 
 
+def _parse_sizes(text: str, default: list[int]) -> list[int]:
+    try:
+        sizes = [int(s) for s in str(text).replace(";", ",").split(",") if s.strip()]
+    except ValueError:
+        sizes = []
+    return sizes or default
+
+
+def _run_attack(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lab import get_attack, get_family, sweep
+    from ..lab.attacks import applicable
+
+    family_kwargs = {}
+    if args.get("p"):
+        family_kwargs["p"] = int(args["p"])
+    if args.get("ratio"):
+        family_kwargs["ratio"] = float(args["ratio"])
+    try:
+        family = get_family(args["family"], **family_kwargs)
+    except (KeyError, TypeError, ValueError) as exc:
+        return f"cannot build family: {exc}"
+    sizes = _parse_sizes(args.get("sizes", ""), [4, 6, 8])
+    seconds = float(args.get("seconds_per_size") or 20.0)
+    seconds = min(seconds, ctx.script_timeout)
+    attack_name = args.get("attack") or "all"
+    attacks = applicable(family) if attack_name == "all" else [get_attack(attack_name)]
+    out = []
+    for attack in attacks:
+        if not attack.applies(family):
+            out.append(f"{attack.name}: not applicable to {family.name} (requires {attack.requires})")
+            continue
+        curve = sweep(family, attack, sizes, time_limit=seconds)
+        exp_id = store.insert(ctx.conn, "experiments", kind="attack_sweep", engine="python",
+                              question_id=ctx.question["id"], problem_id=ctx.question.get("problem_id"),
+                              run_id=ctx.run_id, code=f"lab.sweep({family.name}, {attack.name}, {sizes})",
+                              code_sha256="", params={"family": family.name, "family_kwargs": family_kwargs,
+                                                      "attack": attack.name, "sizes": sizes, "seconds": seconds},
+                              stdout="", exit_code=0,
+                              wall_seconds=sum(p["seconds"] for p in curve.points), result=curve.to_dict())
+        ctx.experiment_ids.append(exp_id)
+        pts = "; ".join(f"n={p['size']}: {'solved' if p['success'] else ('timeout' if p['timed_out'] else 'failed')} "
+                        f"{p['seconds']:.3g}s work={p['work']}" for p in curve.points)
+        out.append(f"experiment {exp_id}: {attack.name} on {family.name} -> growth {curve.growth} "
+                   f"(exp_slope={curve.exp_slope}, poly_degree={curve.poly_degree}); {pts}")
+    return "\n".join(out)
+
+
+def _ladder_evaluate(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lab import get_family
+    from ..lab.ladder import evaluate
+
+    problem = store.get(ctx.conn, "problems", args["problem_id"])
+    if not problem:
+        return f"No problem with id {args['problem_id']}"
+    family_name = args.get("family") or problem.get("generator_path")
+    if not family_name:
+        return ("This problem has no generator yet. Implement it as a family (a class with generate/forward/verify) "
+                "or run experiments with run_script; the ladder needs code, not prose.")
+    try:
+        family = get_family(family_name)
+    except KeyError as exc:
+        return str(exc)
+    sizes = _parse_sizes(args.get("sizes", ""), [4, 6, 8])
+    result = evaluate(ctx.conn, problem["id"], family, sizes, time_limit=min(float(args.get("seconds_per_size") or 20.0),
+                      ctx.script_timeout), question_id=ctx.question["id"], run_id=ctx.run_id)
+    verdicts = result.get("attacks", {}).get("verdicts", [])
+    return json.dumps({"status": result["status"], "well_defined": result["well_defined"], "verdicts": verdicts},
+                      indent=1, default=str)
+
+
 TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
+    "run_attack": (
+        ToolSpec(
+            name="run_attack",
+            description="Run one attack (or all applicable attacks) from the attack lab against a problem family "
+                        "over a range of sizes and get the cost curve. Families: mq (params p, ratio = m/n), "
+                        "matsumoto_imai. Attacks: exhaustive_search, linearization, patarin_linearization_equations, "
+                        "groebner_sage, or all. Recorded as an experiment.",
+            input_schema={"type": "object", "properties": {
+                "family": {"type": "string"},
+                "attack": {"type": "string", "description": "attack name or 'all'"},
+                "sizes": {"type": "string", "description": "comma-separated sizes, e.g. '4,6,8,10'"},
+                "seconds_per_size": {"type": "number"},
+                "p": {"type": "integer", "description": "field size for mq (prime); 2 for matsumoto_imai"},
+                "ratio": {"type": "number", "description": "equations per variable for mq"}}},
+        ), _run_attack),
+    "ladder_evaluate": (
+        ToolSpec(
+            name="ladder_evaluate",
+            description="Run the promotion-ladder checks (well defined; not trivially broken) for a problem that has "
+                        "a generator family, record findings, and update its status.",
+            input_schema={"type": "object", "properties": {
+                "problem_id": {"type": "string"},
+                "family": {"type": "string", "description": "family name; defaults to the problem's generator"},
+                "sizes": {"type": "string"},
+                "seconds_per_size": {"type": "number"}}},
+        ), _ladder_evaluate),
     "search_units": (
         ToolSpec(
             name="search_units",
