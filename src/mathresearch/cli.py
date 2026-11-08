@@ -4,6 +4,7 @@
     mathresearch status [--dir DIR]    table counts, open questions, engines on PATH
     mathresearch charter show          print the charter as workers see it
     mathresearch run-script FILE       execute a script through the sandbox and record it
+    mathresearch run --cycles N        run N research cycles with the configured model provider
 """
 
 from __future__ import annotations
@@ -98,6 +99,39 @@ def cmd_run_script(args: argparse.Namespace) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    from .loop import run_cycles
+    from .providers import make_provider
+
+    ws = _workspace(args)
+    try:
+        charter = Charter.load(ws / CHARTER_FILE)
+    except FileNotFoundError:
+        print(f"no charter at {ws / CHARTER_FILE}; run 'mathresearch init' first", file=sys.stderr)
+        return 1
+    conn = db.connect(ws / DB_FILE)
+    try:
+        provider = make_provider(args.provider, args.model)
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    def report(outcome):
+        q = store.get(conn, "questions", outcome.question_id)
+        created = ", ".join(f"{len(v)} {k}" for k, v in outcome.created.items() if v) or "nothing new"
+        print(f"[{outcome.status}] {q['lane']:7s} {q['kind']:12s} {q['title'][:70]}")
+        print(f"         steps={outcome.steps} tokens={outcome.usage.input_tokens}+{outcome.usage.output_tokens} "
+              f"-> {created}" + (f"  error: {outcome.error}" if outcome.error else ""))
+
+    outcomes = run_cycles(conn, charter, provider, ws, cycles=args.cycles, seed=args.seed, model=args.model,
+                          max_steps=args.max_steps, on_outcome=report)
+    if not outcomes:
+        print("nothing to run: the agenda has no open questions", file=sys.stderr)
+    failed = sum(o.status == "failed" for o in outcomes)
+    print(f"\n{len(outcomes)} cycles, {failed} failed")
+    return 1 if failed and failed == len(outcomes) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mathresearch", description="Autonomous mathematical research environment")
     p.add_argument("--version", action="version", version=f"mathresearch {__version__}")
@@ -123,6 +157,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--memory-mb", type=int, default=2048)
     s.add_argument("--no-record", action="store_true", help="do not store the run in the database")
     s.set_defaults(func=cmd_run_script)
+
+    s = sub.add_parser("run", help="run research cycles: pick a question, run a worker, write back")
+    s.add_argument("--cycles", type=int, default=1)
+    s.add_argument("--provider", choices=["anthropic", "openai", "fake"],
+                   help="default: MATHRESEARCH_PROVIDER, else whichever API key is set")
+    s.add_argument("--model", help="model id (default: MATHRESEARCH_MODEL or the provider's default)")
+    s.add_argument("--max-steps", type=int, default=12, help="max model calls per worker run")
+    s.add_argument("--seed", type=int, help="random seed for lane selection")
+    s.set_defaults(func=cmd_run)
     return p
 
 

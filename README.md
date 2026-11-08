@@ -52,10 +52,34 @@ SageMath is used automatically when `sage` is on `PATH`; scripts fall back to
 plain Python otherwise. msolve and Magma are picked up by the attack lab when
 present.
 
+## Running research cycles
+
+```bash
+pip install -e ".[anthropic]"      # or ".[openai]", or both
+export ANTHROPIC_API_KEY=...        # or OPENAI_API_KEY
+mathresearch --dir ~/research run --cycles 5
+mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-5
+```
+
+Each cycle picks a question (lane chosen by the charter's shares), assembles
+the worker's context from the database, runs the model with tools
+(`search_units`, `open_unit`, `run_script`, `list_catalog`, `read_problem`,
+`read_question`) and applies its structured write-back: findings with
+evidence, new questions (a knowledge gap opens a `learn` question that blocks
+its parent), candidate problems, and the rewritten question summary. The
+conversation is discarded; only the write-back persists. `--provider fake`
+exists for offline tests.
+
+Provider adapters live in `mathresearch/providers/`: `anthropic_messages.py`
+(Claude Messages API, `output_config.format` JSON schema, strict tools) and
+`openai_responses.py` (Responses API, `store: false`, strict `text.format`,
+encrypted reasoning items replayed). Both use the same strict JSON-schema
+subset, so the write-back schema is defined once.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
-- [ ] PR 2: worker loop and provider adapters (OpenAI Responses, Claude Messages)
+- [x] PR 2: worker loop, provider adapters (OpenAI Responses, Claude Messages), write-back, agenda with lanes
 - [ ] PR 3: attack lab v1 (MQ over finite fields) and seed catalogs
 - [ ] Literature ingestion (arXiv / IACR ePrint LaTeX sources), retrodiction test
 
