@@ -29,6 +29,7 @@ class ToolContext:
     script_memory_mb: int = 4096
     fetch: Callable[[str], bytes] | None = None   # network access for ingestion; None = real HTTP
     fetch_delay: float = 3.0
+    hidden_attacks: frozenset[str] = frozenset()  # lab attacks withheld from this run (retrodiction tests)
 
 
 Executor = Callable[[dict[str, Any], ToolContext], str]
@@ -72,9 +73,11 @@ def _run_script(args: dict[str, Any], ctx: ToolContext) -> str:
 def _list_catalog(args: dict[str, Any], ctx: ToolContext) -> str:
     kind = args.get("kind", "problems")
     if kind == "attacks":
-        rows = store.select(ctx.conn, "attacks", order="name")
-        return "\n".join(f"[{r['id']}] {r['name']} ({r.get('family')}): exploits {r.get('exploits')}" for r in rows) \
-            or "Attack catalog is empty."
+        rows = [r for r in store.select(ctx.conn, "attacks", order="name")
+                if (r.get("implementation") or "") not in ctx.hidden_attacks]
+        return "\n".join(f"[{r['id']}] {r['name']} ({r.get('family')}): exploits {r.get('exploits')}"
+                         + (f" [runnable: {r['implementation']}]" if r.get("implementation") else "")
+                         for r in rows) or "Attack catalog is empty."
     where = "status = 'known'" if kind == "problems" else "status != 'known'"
     rows = store.select(ctx.conn, "problems", where, order="name")
     return "\n".join(f"[{r['id']}] {r['name']} [{r['status']}]: forward {r.get('forward_map') or '?'}; "
@@ -130,7 +133,10 @@ def _run_attack(args: dict[str, Any], ctx: ToolContext) -> str:
     seconds = float(args.get("seconds_per_size") or 20.0)
     seconds = min(seconds, ctx.script_timeout)
     attack_name = args.get("attack") or "all"
-    attacks = applicable(family) if attack_name == "all" else [get_attack(attack_name)]
+    if attack_name in ctx.hidden_attacks:
+        return f"unknown attack {attack_name!r}"
+    attacks = [a for a in applicable(family) if a.name not in ctx.hidden_attacks] if attack_name == "all" \
+        else [get_attack(attack_name)]
     out = []
     for attack in attacks:
         if not attack.applies(family):
@@ -169,7 +175,8 @@ def _ladder_evaluate(args: dict[str, Any], ctx: ToolContext) -> str:
         return str(exc)
     sizes = _parse_sizes(args.get("sizes", ""), [4, 6, 8])
     result = evaluate(ctx.conn, problem["id"], family, sizes, time_limit=min(float(args.get("seconds_per_size") or 20.0),
-                      ctx.script_timeout), question_id=ctx.question["id"], run_id=ctx.run_id)
+                      ctx.script_timeout), question_id=ctx.question["id"], run_id=ctx.run_id,
+                      exclude=set(ctx.hidden_attacks))
     verdicts = result.get("attacks", {}).get("verdicts", [])
     return json.dumps({"status": result["status"], "well_defined": result["well_defined"], "verdicts": verdicts},
                       indent=1, default=str)
@@ -235,7 +242,92 @@ def _list_sources(args: dict[str, Any], ctx: ToolContext) -> str:
     return "\n".join(out)
 
 
+def _family_kwargs(args: dict[str, Any]) -> dict[str, Any]:
+    kw: dict[str, Any] = {}
+    if args.get("p"):
+        kw["p"] = int(args["p"])
+    if args.get("ratio"):
+        kw["ratio"] = float(args["ratio"])
+    if args.get("theta"):
+        kw["theta"] = int(args["theta"])
+    return kw
+
+
+def _sample_instance(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lab import get_family
+    from ..lab.script_attack import INSTANCE_FORMAT, instance_to_json
+
+    try:
+        family = get_family(args["family"], **_family_kwargs(args))
+        inst = family.generate(int(args.get("size") or 6), seed=int(args.get("seed") or 0))
+    except (KeyError, TypeError, ValueError) as exc:
+        return f"cannot sample: {exc}"
+    data = instance_to_json(inst)
+    text = json.dumps(data)
+    if len(text) > 12000:
+        text = text[:12000] + " ..."
+    return f"{INSTANCE_FORMAT}\nSample (public part only; the planted solution is withheld):\n{text}"
+
+
+def _submit_attack(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lab.script_attack import evaluate_script_attack
+
+    sizes = _parse_sizes(args.get("sizes", ""), [7, 9, 11, 13])
+    seconds = min(float(args.get("seconds_per_size") or 60.0), ctx.script_timeout)
+    try:
+        result = evaluate_script_attack(
+            ctx.conn, name=args["name"], code=args["code"], family_name=args["family"], sizes=sizes,
+            time_limit=seconds, engine=args.get("engine") or "python", family_kwargs=_family_kwargs(args),
+            problem_id=args.get("problem_id") or ctx.question.get("problem_id"), question_id=ctx.question["id"],
+            run_id=ctx.run_id, description=args.get("description") or "", workspace=ctx.workspace)
+    except (KeyError, TypeError, ValueError) as exc:
+        return f"cannot evaluate: {exc}"
+    ctx.experiment_ids.append(result["experiment_id"])
+    pts = "\n".join(f"  n={p['size']}: {'solved' if p['success'] else 'failed'} in {p['seconds']:.3g}s"
+                    f"{' work=' + str(p['work']) if p.get('work') else ''}"
+                    f"{' (' + p['notes'] + ')' if p.get('notes') else ''}" for p in result["curve"]["points"])
+    tail = ""
+    failed = [p for p in result["curve"]["points"] if not p["success"]]
+    if failed:
+        tail = "\nlast failure stderr: " + (failed[-1].get("stderr_tail") or "(empty)")[-400:]
+    return (f"experiment {result['experiment_id']}, finding {result['finding_id']}"
+            + (f", registered attack {result['attack_id']}" if result["attack_id"] else "")
+            + f"\nverdict: {result['verdict']}\n{result['summary']}\n{pts}{tail}")
+
+
 TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
+    "sample_instance": (
+        ToolSpec(
+            name="sample_instance",
+            description="Generate one public instance of a problem family (mq or matsumoto_imai) in the exact JSON "
+                        "format a submitted attack script receives, with the format documented. Use it to study the "
+                        "structure of the public map in run_script before writing an attack.",
+            input_schema={"type": "object", "properties": {
+                "family": {"type": "string"},
+                "size": {"type": "integer", "description": "n (number of variables)"},
+                "seed": {"type": "integer"},
+                "p": {"type": "integer"}, "ratio": {"type": "number"}, "theta": {"type": "integer"}}},
+        ), _sample_instance),
+    "submit_attack": (
+        ToolSpec(
+            name="submit_attack",
+            description="Submit an attack as a Python (or Sage) script. The lab runs it on fresh instances it "
+                        "generates (the script only sees instance.json: the public polynomials), verifies every "
+                        "claimed solution, sweeps the sizes for a cost curve, records an experiment and a finding, "
+                        "and registers the attack when it works. Verdict 'broken' needs success at every size with "
+                        "polynomial-like growth; report a deterministic 'work' count for a reliable fit. This is "
+                        "the only way to establish that you have broken something.",
+            input_schema={"type": "object", "properties": {
+                "name": {"type": "string", "description": "identifier, e.g. bilinear_relations_v1"},
+                "code": {"type": "string", "description": "full script; reads instance.json, prints RESULT: {...}"},
+                "family": {"type": "string"},
+                "sizes": {"type": "string", "description": "comma-separated n values, e.g. '7,9,11,13'"},
+                "seconds_per_size": {"type": "number"},
+                "engine": {"type": "string", "enum": ["python", "sage"]},
+                "problem_id": {"type": "string", "description": "defaults to the question's problem"},
+                "description": {"type": "string", "description": "what structure the attack exploits"},
+                "p": {"type": "integer"}, "ratio": {"type": "number"}, "theta": {"type": "integer"}}},
+        ), _submit_attack),
     "search_literature": (
         ToolSpec(
             name="search_literature",

@@ -38,10 +38,13 @@ def check_well_defined(family: ProblemFamily, size: int, seed: int = 0, trials: 
 
 
 def check_not_trivially_broken(family: ProblemFamily, sizes: list[int], time_limit: float = 20.0,
-                               seed: int = 0, attacks: list[str] | None = None) -> dict[str, Any]:
+                               seed: int = 0, attacks: list[str] | None = None,
+                               exclude: set[str] | None = None) -> dict[str, Any]:
     curves = []
     for attack in applicable(family):
         if attacks and attack.name not in attacks:
+            continue
+        if exclude and attack.name in exclude:
             continue
         curves.append(sweep(family, attack, sizes, time_limit=time_limit, seed=seed).to_dict())
     largest = max(sizes)
@@ -63,7 +66,7 @@ def check_not_trivially_broken(family: ProblemFamily, sizes: list[int], time_lim
 
 def evaluate(conn: sqlite3.Connection, problem_id: str, family: ProblemFamily, sizes: list[int],
              time_limit: float = 20.0, question_id: str | None = None, run_id: str | None = None,
-             seed: int = 0) -> dict[str, Any]:
+             seed: int = 0, exclude: set[str] | None = None) -> dict[str, Any]:
     """Run steps 2 and 3 for a problem row, record everything, and update its status."""
     problem = store.get(conn, "problems", problem_id)
     if problem is None:
@@ -84,7 +87,7 @@ def evaluate(conn: sqlite3.Connection, problem_id: str, family: ProblemFamily, s
         store.update(conn, "problems", problem_id, status="idea")
         return {"well_defined": wd, "status": "idea"}
 
-    ntb = check_not_trivially_broken(family, sizes, time_limit=time_limit, seed=seed)
+    ntb = check_not_trivially_broken(family, sizes, time_limit=time_limit, seed=seed, exclude=exclude)
     ntb_exp = store.insert(conn, "experiments", kind="attack_sweep", engine="python", problem_id=problem_id,
                            question_id=question_id, run_id=run_id,
                            code=f"lab.ladder.check_not_trivially_broken({family.name}, {sizes})", code_sha256="",

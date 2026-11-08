@@ -69,6 +69,16 @@ find as findings and questions; do not force a cryptographic reading.
 
 
 KIND_INSTRUCTIONS = {
+    "attack": """
+# This is an attack question
+The deliverable is a verified attack or a verified negative result, not an argument. Work in this order:
+sample_instance to see the public data; run_script to compute with small instances and test hypotheses about
+structure (what survives the secret affine maps, what relations hold between inputs and outputs, what
+linear-algebra quantities have unexpected rank); when an algorithm recovers preimages, submit_attack with
+a self-contained script on several sizes. Record each tested hypothesis as a finding with its experiment id,
+including the ones that failed. Known attacks from the catalog are available through run_attack; a new
+attack counts only once submit_attack has verified it.
+""",
     "learn": """
 # This is a learn question
 Its job is to bring material into the knowledge base, not to do research on it. Find the papers
