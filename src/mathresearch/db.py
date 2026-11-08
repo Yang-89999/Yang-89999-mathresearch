@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -52,7 +52,20 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO schema_version(version) VALUES (?)", (target,))
 
 
-_MIGRATIONS: dict[int, str] = {}
+_MIGRATIONS: dict[int, str] = {
+    2: """
+-- World digests written by the reflection step (every charter.reflect_every_runs runs).
+CREATE TABLE IF NOT EXISTS digests (
+    id         TEXT PRIMARY KEY,
+    run_count  INTEGER NOT NULL,
+    trigger    TEXT,                  -- 'schedule' | 'manual'
+    content    TEXT NOT NULL,         -- markdown digest as workers see it
+    stats      TEXT,                  -- JSON statistics the digest was rendered from
+    actions    TEXT,                  -- JSON list of agenda changes made
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+""",
+}
 
 
 def _read_schema() -> str:
@@ -60,5 +73,6 @@ def _read_schema() -> str:
 
 
 def table_counts(conn: sqlite3.Connection) -> dict[str, int]:
-    tables = ["sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs"]
+    tables = ["sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs",
+              "digests"]
     return {t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tables}

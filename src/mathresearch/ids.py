@@ -14,6 +14,7 @@ PREFIXES = {
     "experiment": "exp",
     "finding": "fnd",
     "run": "run",
+    "digest": "dg",
 }
 
 

@@ -14,12 +14,14 @@ from typing import Callable
 from . import agenda
 from .charter import Charter
 from .providers.base import Provider
+from .reflect import Reflection, reflect
 from .worker import RunOutcome, run_question
 
 
 def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, workspace: Path, cycles: int,
                seed: int | None = None, model: str | None = None, max_steps: int = 12,
-               on_outcome: Callable[[RunOutcome], None] | None = None) -> list[RunOutcome]:
+               on_outcome: Callable[[RunOutcome], None] | None = None,
+               on_reflection: Callable[[Reflection], None] | None = None) -> list[RunOutcome]:
     rng = random.Random(seed)
     agenda.seed(conn, charter)
     outcomes: list[RunOutcome] = []
@@ -31,4 +33,18 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
         outcomes.append(outcome)
         if on_outcome:
             on_outcome(outcome)
+        if due_for_reflection(conn, charter):
+            reflection = reflect(conn, charter, workspace)
+            if on_reflection:
+                on_reflection(reflection)
     return outcomes
+
+
+def due_for_reflection(conn: sqlite3.Connection, charter: Charter) -> bool:
+    """True when ``reflect_every_runs`` finished runs have accumulated since the last digest."""
+    every = charter.reflect_every_runs
+    if every <= 0:
+        return False
+    total = conn.execute("SELECT COUNT(*) AS n FROM runs WHERE status != 'running'").fetchone()["n"]
+    last = conn.execute("SELECT MAX(run_count) AS n FROM digests").fetchone()["n"] or 0
+    return total - last >= every

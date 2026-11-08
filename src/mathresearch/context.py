@@ -14,6 +14,7 @@ from typing import Any
 
 from . import store
 from .charter import Charter
+from .reflect import digest_for_context
 
 METHODOLOGY = """
 # How you work
@@ -127,6 +128,10 @@ def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: i
     else:
         parts.append("# Knowledge base\nNo indexed units match this question yet. Search with other terms, "
                      "or open a 'learn' question naming the material to ingest.")
+
+    digest = digest_for_context(conn)
+    if digest:
+        parts.append("# State of the research (latest digest)\n" + digest)
 
     known = conn.execute("SELECT COUNT(*) AS n FROM problems WHERE status='known'").fetchone()["n"]
     attacks = conn.execute("SELECT COUNT(*) AS n FROM attacks").fetchone()["n"]

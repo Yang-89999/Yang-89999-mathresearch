@@ -215,6 +215,22 @@ def cmd_units_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reflect(args: argparse.Namespace) -> int:
+    from .reflect import reflect
+
+    ws = _workspace(args)
+    try:
+        charter = Charter.load(ws / CHARTER_FILE)
+    except FileNotFoundError:
+        print(f"no charter at {ws / CHARTER_FILE}; run 'mathresearch init' first", file=sys.stderr)
+        return 1
+    conn = db.connect(ws / DB_FILE)
+    reflection = reflect(conn, charter, ws, trigger="manual")
+    print(reflection.digest, end="")
+    print(f"digest {reflection.digest_id} written to {ws / 'digest.md'}", file=sys.stderr)
+    return 0
+
+
 def cmd_lab_run(args: argparse.Namespace) -> int:
     from .lab import get_family, sweep
     from .lab.attacks import applicable, get_attack
@@ -276,6 +292,9 @@ def build_parser() -> argparse.ArgumentParser:
     cs = s.add_subparsers(dest="catalog_command", required=True)
     c = cs.add_parser("load", help="load the seed catalogs of known problems and attacks")
     c.set_defaults(func=cmd_catalog_load)
+
+    s = sub.add_parser("reflect", help="tidy the agenda and regenerate the world digest now")
+    s.set_defaults(func=cmd_reflect)
 
     s = sub.add_parser("ingest", help="bring literature into the knowledge base")
     isub = s.add_subparsers(dest="ingest_command", required=True)
