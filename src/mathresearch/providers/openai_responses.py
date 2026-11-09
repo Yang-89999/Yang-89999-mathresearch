@@ -14,7 +14,7 @@ from .base import (ChatRequest, ChatResponse, Message, TextBlock, ToolResultBloc
                    Usage, strictify)
 
 # Set MATHRESEARCH_MODEL or pass --model to override; OpenAI model ids change often.
-DEFAULT_MODEL = "gpt-5"
+DEFAULT_MODEL = "gpt-6-astra"
 
 
 def to_wire(request: ChatRequest, model: str) -> dict[str, Any]:

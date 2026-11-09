@@ -258,9 +258,10 @@ budget:
   max_usd_per_day: 20.0
   max_usd_total: null
 
-# Prices in US dollars per million tokens, by model id. Claude models are
-# built in; add the model you run with OpenAI here (from OpenAI's pricing
-# page), or dollar caps cannot be enforced for it. Example:
+# Prices in US dollars per million tokens, by model id. Current Claude models
+# and OpenAI's gpt-6-astra, gpt-6.1-sol, gpt-6.1-terra and gpt-6-luna are built
+# in. Add any other model here (from its provider's pricing page), or dollar
+# caps cannot be enforced for it; an entry here overrides the built-in price:
 # pricing:
 #   your-openai-model-id: {input: 0.0, cached_input: 0.0, output: 0.0}
 pricing: {}
