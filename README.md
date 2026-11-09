@@ -58,7 +58,7 @@ present.
 pip install -e ".[anthropic]"      # or ".[openai]", or both
 export ANTHROPIC_API_KEY=...        # or OPENAI_API_KEY
 mathresearch --dir ~/research run --cycles 5
-mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-5
+mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-6-astra
 ```
 
 Each cycle picks a question (lane chosen by the charter's shares), assembles
@@ -256,9 +256,11 @@ training cutoff.
 
 ## Spending caps and parallel workers
 
-Every run records its tokens and its cost in dollars. Claude model prices
-are built in; for any other model (OpenAI's included) put the price in the
-charter, in dollars per million tokens:
+Every run records its tokens and its cost in dollars. Prices are built in for
+the current Claude models and for OpenAI's gpt-6-astra (the OpenAI default),
+gpt-6.1-sol, gpt-6.1-terra and gpt-6-luna. For any other model, or if a price
+changes, put the price in the charter, in dollars per million tokens (the
+charter wins over the built-in table):
 
 ```yaml
 pricing:

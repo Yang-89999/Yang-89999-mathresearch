@@ -59,6 +59,12 @@ BUILTIN_PRICES: dict[str, Price] = {
     "claude-haiku-5-5": Price(input=0.10, output=0.50, cached_input=0.01, cache_write=0.125),
     "claude-fable-5-1": Price(input=10.0, output=50.0, cached_input=0.25, cache_write=12.5),
     "claude-opus-5": Price(input=5.0, output=25.0, cached_input=0.50, cache_write=6.25),
+    # OpenAI standard-tier prices (developers.openai.com/api/docs/pricing, read 2026-11-09), for prompts of
+    # <= 272K input tokens; longer prompts cost more. The charter's pricing section overrides these.
+    "gpt-6-astra": Price(input=10.0, output=50.0, cached_input=1.00),
+    "gpt-6.1-sol": Price(input=2.0, output=10.0, cached_input=0.10),
+    "gpt-6.1-terra": Price(input=1.0, output=5.0, cached_input=0.05),
+    "gpt-6-luna": Price(input=0.10, output=0.50, cached_input=0.01),
     "fake-1": Price(input=0.0, output=0.0),
 }
 

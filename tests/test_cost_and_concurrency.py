@@ -56,6 +56,15 @@ def test_price_arithmetic_with_cache():
         pricing.Price.from_dict({"input": 1})
 
 
+def test_openai_default_model_is_priced_and_charter_overrides():
+    from mathresearch.providers import openai_responses
+    u = Usage(input_tokens=1_000_000, output_tokens=100_000, cached_input_tokens=500_000)
+    # 500k fresh * 10 + 500k cached * 1 + 100k out * 50, per million
+    assert pricing.cost_of(u, openai_responses.DEFAULT_MODEL) == pytest.approx(5.0 + 0.5 + 5.0)
+    over = {openai_responses.DEFAULT_MODEL: pricing.Price.from_dict({"input": 4, "output": 20})}
+    assert pricing.cost_of(u, openai_responses.DEFAULT_MODEL, over) == pytest.approx(4.0 + 2.0)
+
+
 def test_charter_budget_and_pricing_sections():
     c = _charter(budget={"max_usd_per_day": 5, "max_usd_total": None},
                  pricing={"gpt-x": {"input": 1.25, "output": 10, "cached_input": 0.125}})
