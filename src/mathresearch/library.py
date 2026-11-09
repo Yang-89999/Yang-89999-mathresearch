@@ -77,6 +77,10 @@ def find_ingested(conn: sqlite3.Connection, entry: dict[str, Any]) -> dict[str, 
     return ingest.find_source(conn, "library", entry["id"])
 
 
+def _units(conn: sqlite3.Connection, source_id: str) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM units WHERE source_id = ?", (source_id,)).fetchone()["n"]
+
+
 def _abstract_only(src: dict[str, Any] | None) -> bool:
     return bool(src) and src.get("format") == "html"
 
@@ -117,6 +121,15 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
             continue
         if src:
             result["already"].append(e["id"])
+            if src.get("kind") in ("book", "notes") and _units(conn, src["id"]) == ingest.MAX_UNITS_PER_SOURCE:
+                try:  # cut at the old 400-unit cap: add the rest, keeping the ids already cited
+                    added = ingest.complete_units(conn, src["id"])
+                except Exception as exc:  # one failure must not stop the list
+                    report(f"{e['id']}: could not add the remaining units: {type(exc).__name__}: {exc}")
+                else:
+                    if added:
+                        report(f"{e['id']}: added the {added} units beyond the old 400-unit cap")
+                        result["completed"].append(e["id"])
             continue
         domains = e.get("domains") or None
         try:

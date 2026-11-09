@@ -22,6 +22,7 @@ from .latex import LatexUnit, parse, parse_directory
 from .text import extract_units_from_text, pdf_to_text
 
 MAX_UNITS_PER_SOURCE = 400
+MAX_UNITS_PER_BOOK = 5000   # textbooks are the main resource: keep all of them
 
 
 @dataclass
@@ -79,9 +80,14 @@ def _existing_result(conn: sqlite3.Connection, src: dict[str, Any]) -> IngestRes
 
 # -- storing ---------------------------------------------------------------------
 
+def unit_limit(conn: sqlite3.Connection, source_id: str) -> int:
+    src = store.get(conn, "sources", source_id)
+    return MAX_UNITS_PER_BOOK if src and src.get("kind") in ("book", "notes") else MAX_UNITS_PER_SOURCE
+
+
 def store_units(conn: sqlite3.Connection, source_id: str, units: Iterable[LatexUnit],
                 domains: list[str] | None) -> list[str]:
-    units = list(units)[:MAX_UNITS_PER_SOURCE]
+    units = list(units)[:unit_limit(conn, source_id)]
     ids = []
     for u in units:
         ids.append(store.insert(conn, "units", source_id=source_id, kind=u.kind, label=u.label, title=u.title,
@@ -113,9 +119,10 @@ def _finish(conn: sqlite3.Connection, source_id: str, title: str, fmt: str, unit
     if bib:
         store.update(conn, "sources", source_id, bibliography=bib)
     store.update(conn, "sources", source_id, ingested_at=store._now(conn))
-    kinds = Counter(u.kind for u in units[:MAX_UNITS_PER_SOURCE])
-    if len(units) > MAX_UNITS_PER_SOURCE:
-        note = (note + "; " if note else "") + f"kept the first {MAX_UNITS_PER_SOURCE} of {len(units)} units"
+    limit = unit_limit(conn, source_id)
+    kinds = Counter(u.kind for u in units[:limit])
+    if len(units) > limit:
+        note = (note + "; " if note else "") + f"kept the first {limit} of {len(units)} units"
     return IngestResult(source_id=source_id, title=title, format=fmt, units=len(ids), kinds=dict(kinds),
                         unit_ids=ids, note=note)
 
@@ -183,6 +190,29 @@ def ingest_file(conn: sqlite3.Connection, path: Path, *, title: str | None = Non
     text = path.read_text(encoding="utf-8", errors="replace")
     return ingest_text(conn, text, title=title or path.stem, path=str(path), fmt="text", authors=authors,
                        year=year, kind=kind, domains=domains)
+
+
+def complete_units(conn: sqlite3.Connection, source_id: str) -> int:
+    """Add the units a source lost to the old 400-unit cap (textbooks now keep up to MAX_UNITS_PER_BOOK). Units
+    already stored keep their ids, so findings that cite them stay valid. Returns how many units were added."""
+    src = store.get(conn, "sources", source_id)
+    path = Path(src["path"]) if src and src.get("path") else None
+    if path is None or not path.exists():
+        return 0
+    stored = conn.execute("SELECT COUNT(*) AS n FROM units WHERE source_id = ?", (source_id,)).fetchone()["n"]
+    if path.is_dir():
+        units = parse_directory(path).units
+    elif path.suffix.lower() == ".tex":
+        units = parse(path.read_text(encoding="utf-8", errors="replace"), read=_reader(path.parent),
+                      file=path.name).units
+    elif path.suffix.lower() == ".pdf":
+        units = extract_units_from_text(pdf_to_text(path), file=str(path))
+    else:
+        units = extract_units_from_text(path.read_text(encoding="utf-8", errors="replace"), file=str(path))
+    extra = units[stored:unit_limit(conn, source_id)]
+    if not extra:
+        return 0
+    return len(store_units(conn, source_id, extra, src.get("domains") or None))
 
 
 def attach_file(conn: sqlite3.Connection, source_id: str, path: Path,

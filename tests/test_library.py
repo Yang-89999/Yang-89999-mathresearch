@@ -142,3 +142,26 @@ def test_cli_ingest_file_attaches_to_an_abstract_only_source(tmp_path, capsys):
     assert main(["--dir", str(tmp_path), "ingest", "file", str(paper), "--eprint", "2022/975", "--no-seed"]) == 0
     assert "full text attached" in capsys.readouterr().out
     assert store.get(conn, "sources", sid)["format"] == "latex" and len(store.select(conn, "sources")) == 1
+
+
+def test_textbooks_keep_all_units_and_old_truncations_are_completed(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "r.db")
+    monkeypatch.setattr(ingest, "ingest_reference", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(ingest.ax, "polite_sleep", lambda s: None)
+    text = "\n\n".join(f"Theorem {i}.1. Every ideal number {i} has a finite Groebner basis." for i in range(1, 461))
+    (tmp_path / "library").mkdir()
+    book = tmp_path / "library" / "cox_little_oshea_iva.txt"
+    book.write_text(text, encoding="utf-8")
+    res = library.fetch(conn, tmp_path, topic="computational_algebra", report=lambda s: None)
+    sid = ingest.find_source(conn, "library", "cox_little_oshea_iva")["id"]
+    assert "cox_little_oshea_iva" in res["ingested"] and library._units(conn, sid) == 460   # books are not cut at 400
+    paper = ingest.ingest_text(conn, text, title="A long paper", kind="paper")
+    assert paper.units == 400 and "kept the first 400 of 460" in paper.note
+    # a book ingested under the old cap: the rest is added, the first 400 keep their ids
+    first = [u["id"] for u in store.select(conn, "units", "source_id = ?", (sid,), order="rowid")]
+    conn.execute("DELETE FROM units WHERE id IN (%s)" % ",".join("?" * 60), first[400:])
+    lines = []
+    res = library.fetch(conn, tmp_path, topic="computational_algebra", report=lines.append)
+    after = [u["id"] for u in store.select(conn, "units", "source_id = ?", (sid,), order="rowid")]
+    assert after[:400] == first[:400] and len(after) == 460 and "cox_little_oshea_iva" in res["completed"]
+    assert any("added the 60 units" in l for l in lines)
