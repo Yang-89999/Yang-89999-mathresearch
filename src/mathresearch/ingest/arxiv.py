@@ -32,10 +32,32 @@ _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 
-def http_fetch(url: str, timeout: float = 60.0) -> bytes:
+RETRIES = 3            # attempts for a transient network failure (a cut-off download, a reset, a timeout)
+RETRY_WAIT = 5.0       # seconds before the first retry; doubles after each
+
+
+def _transient(exc: BaseException) -> bool:
+    import http.client
+    import socket
+    import urllib.error
+    if isinstance(exc, urllib.error.HTTPError):  # a server answer: only 429 and 5xx are worth retrying
+        return exc.code == 429 or exc.code >= 500
+    return isinstance(exc, (http.client.IncompleteRead, http.client.RemoteDisconnected, ConnectionError,
+                            TimeoutError, socket.timeout, urllib.error.URLError))
+
+
+def http_fetch(url: str, timeout: float = 60.0, retries: int = RETRIES, wait: float = RETRY_WAIT,
+               sleep: Callable[[float], None] = time.sleep) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https/http to fixed hosts)
-        return resp.read()
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https/http to fixed hosts)
+                return resp.read()
+        except Exception as exc:
+            if attempt == retries - 1 or not _transient(exc):
+                raise
+            sleep(wait * 2 ** attempt)
+    raise RuntimeError("unreachable")
 
 
 @dataclass
