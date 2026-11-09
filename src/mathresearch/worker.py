@@ -157,7 +157,13 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
         created = {"findings": [], "questions": [], "problems": [], "notes": [], "cards": [], "warnings": []}
 
     status = "failed" if error else "done"
-    if error:
+    if error and is_policy_refusal(error):
+        # The provider's safety filter refused the request. Leave the question on the agenda (the filter is not
+        # deterministic) but at lower priority, so it does not keep coming back first.
+        error = f"{REFUSED}: {error}"
+        store.update(conn, "questions", question["id"], status="open",
+                     priority=round((question.get("priority") or 0.5) * 0.5, 4))
+    elif error:
         store.update(conn, "questions", question["id"], status="open")  # leave it on the agenda
     cost = pricing.cost_of(usage, model_id, charter.pricing)
     store.update(conn, "runs", run_id, status=status, input_tokens=usage.input_tokens,
@@ -174,6 +180,16 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
 
 
 INTERRUPTED = "interrupted: the process stopped before the run finished"
+REFUSED = "refused by the provider's content filter"
+_POLICY_MARKERS = ("flagged for possible", "content policy", "usage policies", "safety system", "content_filter",
+                   "cybersecurity risk", "invalid_prompt")
+
+
+def is_policy_refusal(error: str | None) -> bool:
+    """A request the provider refused on policy grounds (HTTP 400 with a content-filter message), as opposed to
+    a malformed request or a network failure."""
+    e = (error or "").lower()
+    return any(m in e for m in _POLICY_MARKERS)
 
 
 def _record_cancelled(conn: sqlite3.Connection, run_id: str, question_id: str, usage: Usage, model_id: str | None,

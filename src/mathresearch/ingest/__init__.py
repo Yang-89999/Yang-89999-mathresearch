@@ -258,8 +258,22 @@ def attach_arxiv_copy(conn: sqlite3.Connection, source_id: str, workspace: Path,
 
 
 def abstract_only(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Sources stored with title and abstract only (ePrint refused the PDF): the operator can supply the file."""
-    return store.select(conn, "sources", "format = 'html' AND identifiers LIKE '%\"eprint\"%'", order="created_at")
+    """Sources stored with title and abstract only (ePrint refused the PDF) whose full text is not in the
+    knowledge base under another source (such as the arXiv version): the operator can supply the file."""
+    rows = store.select(conn, "sources", "format = 'html' AND identifiers LIKE '%\"eprint\"%'", order="created_at")
+    return [r for r in rows if full_text_twin(conn, r) is None]
+
+
+def full_text_twin(conn: sqlite3.Connection, src: dict[str, Any]) -> dict[str, Any] | None:
+    """Another source holding the full text of the same paper (same title), e.g. the arXiv version an agent
+    ingested while the ePrint record kept only the abstract."""
+    want = ax.norm_title(src.get("title") or "")
+    if len(want) < 16:
+        return None
+    for other in store.select(conn, "sources", "id != ? AND format IS NOT NULL AND format != 'html'", (src["id"],)):
+        if ax.norm_title(other.get("title") or "") == want:
+            return other
+    return None
 
 
 def eprint_pdf_url(eprint_id: str) -> str:

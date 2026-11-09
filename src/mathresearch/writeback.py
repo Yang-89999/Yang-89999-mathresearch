@@ -271,8 +271,14 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
         store.close_question(conn, qid, status=status)
     else:
         changes["status"] = "blocked" if blocked else "open"
+        # A question that stays open yields its lane to others: its priority decays with every run, so one
+        # question cannot take run after run (a later run can raise it again through its sub-questions).
+        changes["priority"] = round((question.get("priority") or 0.5) * STAY_OPEN_DECAY, 4)
         store.update(conn, "questions", qid, **changes)
     return created
+
+
+STAY_OPEN_DECAY = 0.7
 
 
 def _seed_incomplete(conn: sqlite3.Connection, question: dict[str, Any], data: dict[str, Any]) -> str | None:

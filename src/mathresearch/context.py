@@ -240,7 +240,15 @@ def _question_block(q: dict[str, Any], short: bool = False) -> str:
     body = f"\n\n{q['body']}" if q.get("body") else ""
     summary = f"\n\n## Your summary from previous runs\n{q['summary']}" if q.get("summary") else \
         "\n\n(No previous runs on this question.)"
+    runs = q.get("runs") or 0
+    if runs >= MANY_RUNS:
+        summary += (f"\n\nThis question has had {runs} runs. Do not repeat earlier work: either settle it now "
+                    "(close it with what is established, and what is not and why), or abandon it with a summary "
+                    "saying what would unblock it (a paper to request_paper, an experiment, a sub-question).")
     return head + body + summary
+
+
+MANY_RUNS = 3
 
 
 def _parent_chain(conn: sqlite3.Connection, question: dict[str, Any], limit: int = 3) -> list[dict[str, Any]]:
