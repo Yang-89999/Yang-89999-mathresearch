@@ -220,6 +220,43 @@ def attach_file(conn: sqlite3.Connection, source_id: str, path: Path,
     return res
 
 
+ARXIV_RECHECK_DAYS = 30
+
+
+def attach_arxiv_copy(conn: sqlite3.Connection, source_id: str, workspace: Path, *,
+                      fetch: ax.Fetch = ax.http_fetch, delay: float = 3.0) -> IngestResult | None:
+    """Give an abstract-only source the full text of its arXiv version, when arXiv has one (matched by title
+    and authors). Returns None when there is no arXiv copy or arXiv cannot be reached."""
+    import datetime as _dt
+
+    src = store.get(conn, "sources", source_id)
+    if src is None:
+        return None
+    ids = dict(src.get("identifiers") or {})
+    today = _dt.date.today()
+    checked = ids.get("arxiv_checked")
+    if checked and (today - _dt.date.fromisoformat(checked)).days < ARXIV_RECHECK_DAYS:
+        return None   # looked recently and found none; arXiv postings of old ePrint papers are rare
+    try:
+        ax.polite_sleep(delay)
+        hit = ax.find_arxiv_copy(src["title"], src.get("authors") or [], fetch=fetch, delay=delay)
+        if hit is None:
+            ids["arxiv_checked"] = today.isoformat()
+            store.update(conn, "sources", source_id, identifiers=ids)
+            return None
+        ax.polite_sleep(delay)
+        dest = workspace / "sources" / "arxiv" / hit.identifier.replace("/", "_")
+        fmt = ax.download_arxiv_source(hit.identifier, dest, fetch=fetch)
+    except Exception:  # an arXiv hiccup leaves the abstract in place; library fetch tries again later
+        return None
+    path = dest if fmt == "latex" else next(iter(sorted(dest.rglob("*.pdf"))), None)
+    if path is None:
+        return None
+    res = attach_file(conn, source_id, path, identifiers={"arxiv": hit.identifier})
+    res.note = f"full text from the arXiv version {hit.identifier}"
+    return res
+
+
 def abstract_only(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Sources stored with title and abstract only (ePrint refused the PDF): the operator can supply the file."""
     return store.select(conn, "sources", "format = 'html' AND identifiers LIKE '%\"eprint\"%'", order="created_at")
@@ -310,7 +347,8 @@ def ingest_eprint(conn: sqlite3.Connection, ref: str, workspace: Path, *, domain
         note = (f"{blocked}; stored title, authors and abstract only. To index the full text, open "
                 f"{eprint_pdf_url(eprint_id)} in a browser, save the PDF, and run: "
                 f"mathresearch ingest file <paper.pdf> --eprint {eprint_id}")
-        return _finish(conn, source_id, meta.title, "html", units, domains, note=note)
+        res = _finish(conn, source_id, meta.title, "html", units, domains, note=note)
+        return attach_arxiv_copy(conn, source_id, workspace, fetch=fetch, delay=delay) or res
     try:
         text = pdf_to_text(pdf)
     except ImportError:

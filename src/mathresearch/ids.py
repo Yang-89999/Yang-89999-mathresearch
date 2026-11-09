@@ -18,6 +18,7 @@ PREFIXES = {
     "reading_note": "rn",
     "weakness_pattern": "wp",
     "lesson": "ls",
+    "paper_request": "want",
 }
 
 

@@ -25,6 +25,7 @@ _JSON_COLUMNS = {
     "reading_notes": {"ideas", "patterns", "unit_ids"},
     "weakness_patterns": {"applies_to", "exploited_by", "examples", "refs"},
     "lessons": {"experts", "applies_to", "refs", "sources"},
+    "paper_requests": {"whys"},
 }
 
 _ID_KIND = {
@@ -40,6 +41,7 @@ _ID_KIND = {
     "reading_notes": "reading_note",
     "weakness_patterns": "weakness_pattern",
     "lessons": "lesson",
+    "paper_requests": "paper_request",
 }
 
 
@@ -79,7 +81,7 @@ def update(conn: sqlite3.Connection, table: str, id_: str, **changes: Any) -> No
     if not changes:
         return
     changes = _encode(table, changes)
-    if table in ("problems", "questions"):
+    if table in ("problems", "questions", "paper_requests"):
         changes.setdefault("updated_at", _now(conn))
     sets = ", ".join(f"{k} = ?" for k in changes)
     conn.execute(f"UPDATE {table} SET {sets} WHERE id = ?", (*changes.values(), id_))

@@ -32,8 +32,7 @@ Rules:
    you cannot name the decision, do not read further. Then open only what you need: 'section' with the
    purpose, open_unit for one statement (it brings the definitions and lemmas it uses), and follow to trace
    what builds on it, the papers it cites and its proof. If the knowledge
-   base lacks a paper, find and ingest it (search_literature, ingest_source) or open a 'learn' question
-   (blocks_parent: true when you cannot continue without it) instead of guessing. Return a reading note for
+   base lacks a paper, find and ingest it (search_literature, ingest_source). Return a reading note for
    every source you read: where it differed from your prior, what structure its attacks exploit, and the
    ideas it gives you. Every idea becomes a new question or candidate, or you say why it is not actionable.
 2. Attack before you believe. A hardness claim without an experiment is at most a hypothesis. Use run_script
@@ -60,6 +59,15 @@ Rules:
 10. Build on the memory. Other runs have worked on other branches of the agenda; what you see above is only the
    part linked to your question. Use search_findings before opening a question or proposing a candidate, and
    cite or contradict what is already recorded rather than rediscovering it.
+11. Textbooks first. For definitions, standard theorems and classical algorithms, the classical textbooks
+   in the knowledge base (search_units shows their hits first; in 'books' restricts to them) are the better
+   source: settled, exact and self-contained. Go to papers for recent results, attacks and parameters.
+12. A missing text never stops you. Papers on IACR ePrint arrive as abstract only, and textbooks and journal
+   versions may be absent. Think anyway: you know this literature. State the result you rely on as you
+   remember it, mark it 'from memory, not checked against the text', give it lower confidence, and keep
+   going. When the full text would change a decision, call request_paper (citation, id if known, why); the
+   operator downloads requested texts between runs. Open a 'learn' question only for material you cannot
+   reconstruct at all.
 """
 
 LANE_INSTRUCTIONS = {
@@ -99,8 +107,9 @@ attack counts only once submit_attack has verified it.
     "learn": """
 # This is a learn question (pulled reading)
 A parent question needs material it cannot state exactly from memory. Start from the brief: what the parent
-needs, what you expect the material to say, and which decision of the parent it will change. Find the papers
-(search_literature), ingest them (ingest_source), and read top-down (read_source card, outline, then only the
+needs, what you expect the material to say, and which decision of the parent it will change. Look in the
+textbooks first (search_units in 'books'), then find papers (search_literature), ingest them (ingest_source),
+and read top-down (read_source card, outline, then only the
 needed sections). Return a reading note per source and a finding per fact the parent needs, with unit or source
 ids. Close the question with a summary that says what changed for the parent; open a further learn question
 only for what you could not obtain.
@@ -115,7 +124,9 @@ assumptions, what does this make me want to try? A variant that removes the stru
 transfer of the hard core to another setting, an attack idea on a related scheme, a classification or
 reconstruction problem hiding in a theorem. Deliver: the paper card (source_cards), a reading note, and at
 least one new question or candidate with sparked_by 'reference' and this source id. If the paper suggests
-nothing actionable, record a negative finding saying why. The question cannot close otherwise.
+nothing actionable, record a negative finding saying why. The question cannot close otherwise. If only the
+abstract is stored (an ePrint paper), do the same from the abstract and what you know of the paper, mark what
+comes from memory, and call request_paper when the full text would change what you conclude.
 """,
     "survey": """
 # This is a survey (browsing)

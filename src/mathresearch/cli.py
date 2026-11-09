@@ -85,7 +85,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     from . import ingest as _ingest
     partial = _ingest.abstract_only(conn)
     if partial:
-        print(f"  {len(partial)} ePrint papers have only their abstract; 'library fetch' lists how to add their PDFs")
+        print(f"  {len(partial)} ePrint papers have only their abstract; 'library open' opens their PDF links")
+    from . import wanted as _wanted
+    asks = _wanted.open_requests(conn)
+    if asks:
+        print(f"  the agents asked for {len(asks)} papers or books; 'library wanted' lists them with the reasons")
     from . import pricing
     charter_path = ws / CHARTER_FILE
     sp = pricing.spend(conn)
@@ -282,19 +286,24 @@ def cmd_library_list(args: argparse.Namespace) -> int:
     return 0
 
 
+DOWNLOADS = Path.home() / "Downloads"
+
+
 def cmd_library_fetch(args: argparse.Namespace) -> int:
     from . import library
     ws = _workspace(args)
     conn = db.connect(ws / DB_FILE)
     (ws / library.LIBRARY_DIR).mkdir(parents=True, exist_ok=True)
     seed = not args.no_seed and _seed_policy(ws)
-    res = library.fetch(conn, ws, topic=args.topic, seed=seed, delay=args.delay)
+    downloads = None if args.downloads == "none" else Path(args.downloads).expanduser()
+    res = library.fetch(conn, ws, topic=args.topic, seed=seed, delay=args.delay, downloads=downloads)
     print(f"\n{len(res['ingested'])} ingested, {len(res['completed'])} completed with full text, "
           f"{len(res['already'])} already present, {len(res['failed'])} failed")
     if res["waiting"]:
         print(f"{len(res['waiting'])} textbooks still wait for a file under {ws / library.LIBRARY_DIR}/: "
               + ", ".join(res["waiting"]))
     _print_missing_full_text(conn, ws)
+    _print_wanted(conn, ws, brief=True)
     return 1 if res["failed"] and not (res["ingested"] or res["completed"]) else 0
 
 
@@ -303,10 +312,75 @@ def _print_missing_full_text(conn, ws: Path) -> None:
     missing = library.missing_full_text(conn, ws)
     if not missing:
         return
-    print(f"\n{len(missing)} ePrint papers have only their abstract: ePrint refuses automated PDF downloads. For "
-          f"each, open the link in your browser, save the PDF under the name shown, then run library fetch again:")
-    for title, url, dest in missing:
-        print(f"  {title[:70]}\n    {url}\n    save as {dest}")
+    print(f"\n{len(missing)} ePrint papers have only their abstract (ePrint refuses automated PDF downloads):")
+    for title, url, _dest in missing:
+        print(f"  {title[:70]}\n    {url}")
+    print("The agents work without them. To give them the full text, run 'library open' (opens these links in your "
+          "browser), let the PDFs land in Downloads, then run 'library fetch' again.")
+
+
+def _print_wanted(conn, ws: Path, brief: bool = False) -> int:
+    from . import wanted
+    rows = wanted.open_requests(conn)
+    if not rows:
+        if not brief:
+            print("The agents have not asked for any paper.")
+        return 0
+    if brief:
+        print(f"\nThe agents asked for {len(rows)} papers or books; 'library wanted' lists them with the reasons.")
+        return len(rows)
+    for r in rows:
+        print(wanted.render(r, ws) + "\n")
+    print(f"{len(rows)} requests. Download the ones worth it; 'library fetch' or 'ingest file' attaches them and "
+          "closes the request. 'library dismiss <id>' drops one.")
+    return len(rows)
+
+
+def cmd_library_wanted(args: argparse.Namespace) -> int:
+    ws = _workspace(args)
+    _print_wanted(db.connect(ws / DB_FILE), ws)
+    return 0
+
+
+def cmd_library_dismiss(args: argparse.Namespace) -> int:
+    from . import wanted
+    conn = db.connect(_workspace(args) / DB_FILE)
+    status = 0
+    for rid in args.request_ids:
+        if wanted.dismiss(conn, rid):
+            print(f"{rid}: dismissed")
+        else:
+            print(f"{rid}: no such request", file=sys.stderr)
+            status = 1
+    return status
+
+
+def cmd_library_open(args: argparse.Namespace) -> int:
+    """Open the PDF link of every abstract-only ePrint paper (and every requested ePrint paper) in the browser."""
+    import time
+    import webbrowser
+
+    from . import library, wanted
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    urls = [(t, u) for t, u, _ in library.missing_full_text(conn, ws)]
+    seen = {u for _, u in urls}
+    for r in wanted.open_requests(conn):
+        if r.get("link") and r["link"] not in seen and r["link"].endswith(".pdf"):
+            urls.append((r["citation"], r["link"]))
+            seen.add(r["link"])
+    if not urls:
+        print("Every ePrint paper already has its full text.")
+        return 0
+    for title, url in urls[: args.limit]:
+        print(f"{title[:70]}\n  {url}")
+        if not args.print_only:
+            webbrowser.open(url)
+            time.sleep(0.5)
+    if not args.print_only:
+        print(f"\nOpened {min(len(urls), args.limit)} links. Save each PDF (Downloads is fine, any name the browser "
+              "picks), then run: mathresearch --dir " + str(ws) + " library fetch")
+    return 0
 
 
 def cmd_lessons_list(args: argparse.Namespace) -> int:
@@ -692,7 +766,19 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--topic")
     c.add_argument("--delay", type=float, default=3.0)
     c.add_argument("--no-seed", action="store_true", help="index only; do not queue seed reads")
+    c.add_argument("--downloads", default=str(DOWNLOADS),
+                   help="folder where your browser saves PDFs (default ~/Downloads; 'none' to skip): ePrint PDFs "
+                        "found there are attached to their paper")
     c.set_defaults(func=cmd_library_fetch)
+    c = lib.add_parser("open", help="open the PDF links of the papers that have only their abstract in your browser")
+    c.add_argument("--print-only", action="store_true", help="list the links without opening them")
+    c.add_argument("--limit", type=int, default=30)
+    c.set_defaults(func=cmd_library_open)
+    c = lib.add_parser("wanted", help="papers and books the agents asked for, with their reasons")
+    c.set_defaults(func=cmd_library_wanted)
+    c = lib.add_parser("dismiss", help="drop requests you will not fulfil")
+    c.add_argument("request_ids", nargs="+")
+    c.set_defaults(func=cmd_library_dismiss)
 
     s = sub.add_parser("lessons", help="lessons from PQC experts' published work")
     lsub = s.add_subparsers(dest="lessons_command", required=True)
