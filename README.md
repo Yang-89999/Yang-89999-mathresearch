@@ -129,14 +129,29 @@ findings and move a problem's status.
 mathresearch --dir ~/research catalog load          # 16 known problems, 26 attacks with references
 mathresearch lab run --family mq --p 7 --sizes 3,4,5,6
 mathresearch lab run --family matsumoto_imai --attack patarin_linearization_equations --sizes 7,9,11,13
+mathresearch lab run --family atfe --p 3 --sizes 4,5,6,7,8 --seconds 30
 ```
 
-Families so far: `mq` (random quadratic systems over GF(p), planted
-solution) and `matsumoto_imai` (the C* trapdoor over GF(2^n), the known
-answer for the retrodiction test). Attacks: exhaustive search,
-linearization, Patarin's linearization equations, and Gröbner bases through
-SageMath when installed. Workers reach the lab through the `run_attack` and
-`ladder_evaluate` tools.
+Families:
+
+- `mq`: random quadratic systems over GF(p) with a planted solution.
+- `matsumoto_imai`: the C* trapdoor over GF(2^n), the known answer for the retrodiction test.
+- `tensor_iso`: 3-tensor isomorphism, B = (P, Q, R) . A with P, Q, R in GL_n(q).
+- `atfe`: alternating trilinear form equivalence, psi(x, y, z) = phi(Ax, Ay, Az), the hard problem of ALTEQ.
+
+Attacks on MQ-type families: exhaustive search, linearization, Patarin's linearization equations, and Gröbner
+bases through SageMath when installed. On `tensor_iso` and `atfe`:
+
+- `iso_guess_linear` guesses where vectors go one at a time. Each guess makes the action's equations linear
+  in the secret map and its inverse, and a wrong guess is dropped as soon as the equations become inconsistent.
+- `iso_rank_filter` does the same, but only guesses inside the secret map's rank invariants. A vector's slice
+  (or the bilinear form phi(v, ., .)) keeps its rank under the map, so rare low-rank vectors shrink the search.
+  This is the idea behind Beullens' graph-theoretic ATFE attack.
+
+At q = 3 the rank filter solves `atfe` up to n = 8 in seconds, while the baseline stalls at n = 5 to 7, so the
+lab shows what an invariant buys. Workers reach the lab through `run_attack`, `ladder_evaluate`,
+`sample_instance` and `submit_attack` (a script gets the public tensors or forms in `instance.json` and
+returns the secret matrices).
 
 ## Literature ingestion
 

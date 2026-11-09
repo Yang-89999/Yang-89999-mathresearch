@@ -134,6 +134,24 @@
   complexity: reduced ALTEQ parameters; heuristic
   refs: ["Beullens 2023 Crypto"]
 
+- id: atk_iso_guess_linear
+  name: Guess images, then linear algebra (tensor isomorphism, ATFE)
+  family: algebraic
+  exploits: once the images of a few vectors are guessed, the action's equations are linear in the secret map and its inverse
+  applies_to: [prob_known_tensor_isomorphism]
+  complexity: about q^(kn) guesses with backtracking; the generic baseline
+  implementation: iso_guess_linear
+  refs: ["Bouillaguet, Fouque, Veber 2013 Eurocrypt", "Beullens 2023 Crypto"]
+
+- id: atk_iso_rank_filter
+  name: Rank-invariant guessing (tensor isomorphism, ATFE)
+  family: combinatorial
+  exploits: the rank of the slice (or of phi(v, ., .)) is preserved; guessing only inside rare low-rank classes
+  applies_to: [prob_known_tensor_isomorphism]
+  complexity: guesses limited to the rare rank classes; much smaller than q^(kn) when low-rank points are rare
+  implementation: iso_rank_filter
+  refs: ["Beullens 2023 Crypto"]
+
 - id: atk_leon_support_splitting
   name: Leon's algorithm and support splitting
   family: combinatorial

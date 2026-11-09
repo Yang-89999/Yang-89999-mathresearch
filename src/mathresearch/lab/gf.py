@@ -84,3 +84,47 @@ def random_invertible(n: int, p: int, rng: random.Random) -> list[list[int]]:
 
 def matvec(m: list[list[int]], v: list[int], p: int) -> list[int]:
     return [sum(a * b for a, b in zip(row, v)) % p for row in m]
+
+
+def solve_affine(matrix: list[list[int]], rhs: list[int], p: int,
+                 ncols: int | None = None) -> tuple[list[int], list[list[int]]] | None:
+    """All solutions of A x = b over GF(p): (one solution, basis of the kernel of A), or None if inconsistent."""
+    n = ncols if ncols is not None else (len(matrix[0]) if matrix else 0)
+    aug = [row[:] + [b % p] for row, b in zip(matrix, rhs)]
+    rows, pivots = rref(aug, p)
+    for row in rows:
+        if all(x % p == 0 for x in row[:n]) and row[n] % p:
+            return None
+    pivots = [c for c in pivots if c < n]
+    x = [0] * n
+    for r, c in enumerate(pivots):
+        x[c] = rows[r][n] % p
+    pivot_set = set(pivots)
+    basis = []
+    for f in range(n):
+        if f in pivot_set:
+            continue
+        v = [0] * n
+        v[f] = 1
+        for r, c in enumerate(pivots):
+            v[c] = (-rows[r][f]) % p
+        basis.append(v)
+    return x, basis
+
+
+def inverse(m: list[list[int]], p: int) -> list[list[int]] | None:
+    n = len(m)
+    aug = [row[:] + [1 if i == j else 0 for j in range(n)] for i, row in enumerate(m)]
+    rows, pivots = rref(aug, p)
+    if pivots[:n] != list(range(n)):
+        return None
+    return [row[n:] for row in rows[:n]]
+
+
+def matmul(a: list[list[int]], b: list[list[int]], p: int) -> list[list[int]]:
+    bt = list(zip(*b))
+    return [[sum(x * y for x, y in zip(row, col)) % p for col in bt] for row in a]
+
+
+def transpose(m: list[list[int]]) -> list[list[int]]:
+    return [list(r) for r in zip(*m)]

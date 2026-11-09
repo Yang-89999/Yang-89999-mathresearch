@@ -107,6 +107,7 @@
   quantum_notes: non-abelian action; TI-complete class; no known quantum polynomial algorithm
   best_attacks: [{attack_id: atk_graph_theoretic_ati, complexity: "Beullens 2023: graph-based attack reduced ALTEQ parameters"}, {attack_id: atk_groebner_ip, complexity: "algebraic modelling"}]
   refs: ["Grochow, Qiao 2021 ITCS (TI-completeness)", "Tang, Duong, Joux, Plantard, Qiao, Susilo 2022 (ALTEQ)", "Beullens 2023 Crypto (graph-theoretic algorithms for ATFE)"]
+  generator_path: atfe
 
 - id: prob_known_code_equivalence
   name: Linear code equivalence (LEP / PEP)
