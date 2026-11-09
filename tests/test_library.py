@@ -87,3 +87,58 @@ def test_cli_library(tmp_path, capsys, monkeypatch):
     assert main(["--dir", str(tmp_path), "library", "fetch", "--topic", "representation_theory"]) == 0
     out = capsys.readouterr().out
     assert "1 ingested" in out and "seed read queued" in out and "still wait for a file" in out
+
+
+def _abstract_only(conn, eprint_id, title):
+    sid = store.insert(conn, "sources", kind="paper", title=title, identifiers={"eprint": eprint_id}, format="html",
+                       provided_by="operator")
+    store.insert(conn, "units", source_id=sid, kind="remark", title="Abstract", statement="An abstract.")
+    from mathresearch import reading
+    return sid, reading.seed_reference(conn, sid)
+
+
+def test_full_text_completes_abstract_only_eprint_sources(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "r.db")
+    monkeypatch.setattr(ingest.ax, "polite_sleep", lambda s: None)
+    monkeypatch.setattr(ingest, "ingest_reference", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
+    peikert, seed = _abstract_only(conn, "2015/939", "A Decade of Lattice Cryptography")
+    tensors, _ = _abstract_only(conn, "2019/687", "General Linear Group Action on Tensors")
+    assert {t for t, _, _ in library.missing_full_text(conn, tmp_path)} == {
+        "A Decade of Lattice Cryptography", "General Linear Group Action on Tensors"}
+    url, dest = [(u, d) for t, u, d in library.missing_full_text(conn, tmp_path) if "Decade" in t][0]
+    assert url == "https://eprint.iacr.org/2015/939.pdf" and dest == tmp_path / "library" / "peikert_decade.pdf"
+    st = {r["id"]: r["state"] for r in library.status(conn, tmp_path, topic="lattices")}
+    assert st["peikert_decade"] == "abstract only"
+
+    # the operator saves the paper under its ePrint number; the tensors paper has an arXiv copy we fetch ourselves
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "2015-939.tex").write_text(PAPER, encoding="utf-8")
+
+    def arxiv_source(arxiv_id, dest, fetch=None):
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "main.tex").write_text(PAPER, encoding="utf-8")
+        return "latex"
+
+    monkeypatch.setattr(ingest.ax, "download_arxiv_source", arxiv_source)
+    res = library.fetch(conn, tmp_path, report=lambda s: None)
+    assert {"peikert_decade", "ji_qiao_song_yun_tensors"} <= set(res["completed"])
+    for sid in (peikert, tensors):
+        src = store.get(conn, "sources", sid)
+        units = store.select(conn, "units", "source_id = ?", (sid,))
+        assert src["format"] == "latex" and [u["kind"] for u in units] == ["theorem"]
+    assert store.get(conn, "sources", tensors)["identifiers"] == {"eprint": "2019/687", "arxiv": "1906.04330"}
+    assert store.get(conn, "questions", seed)["origin_id"] == peikert          # the seed read still points here
+    assert not library.missing_full_text(conn, tmp_path)
+    assert library.fetch(conn, tmp_path, report=lambda s: None)["completed"] == []   # nothing left to complete
+
+
+def test_cli_ingest_file_attaches_to_an_abstract_only_source(tmp_path, capsys):
+    main(["--dir", str(tmp_path), "init"])
+    conn = db.connect(tmp_path / "research.db")
+    sid, _ = _abstract_only(conn, "2022/975", "An efficient key recovery attack on SIDH")
+    paper = tmp_path / "sidh.tex"
+    paper.write_text(PAPER, encoding="utf-8")
+    capsys.readouterr()
+    assert main(["--dir", str(tmp_path), "ingest", "file", str(paper), "--eprint", "2022/975", "--no-seed"]) == 0
+    assert "full text attached" in capsys.readouterr().out
+    assert store.get(conn, "sources", sid)["format"] == "latex" and len(store.select(conn, "sources")) == 1

@@ -82,6 +82,10 @@ def cmd_status(args: argparse.Namespace) -> int:
                         "WHERE provided_by = 'operator'").fetchone()
     if refs["n"]:
         print(f"  your references: {refs['n']} ({refs['cards'] or 0} with a paper card)")
+    from . import ingest as _ingest
+    partial = _ingest.abstract_only(conn)
+    if partial:
+        print(f"  {len(partial)} ePrint papers have only their abstract; 'library fetch' lists how to add their PDFs")
     from . import pricing
     charter_path = ws / CHARTER_FILE
     sp = pricing.spend(conn)
@@ -285,11 +289,24 @@ def cmd_library_fetch(args: argparse.Namespace) -> int:
     (ws / library.LIBRARY_DIR).mkdir(parents=True, exist_ok=True)
     seed = not args.no_seed and _seed_policy(ws)
     res = library.fetch(conn, ws, topic=args.topic, seed=seed, delay=args.delay)
-    print(f"\n{len(res['ingested'])} ingested, {len(res['already'])} already present, {len(res['failed'])} failed")
+    print(f"\n{len(res['ingested'])} ingested, {len(res['completed'])} completed with full text, "
+          f"{len(res['already'])} already present, {len(res['failed'])} failed")
     if res["waiting"]:
         print(f"{len(res['waiting'])} textbooks still wait for a file under {ws / library.LIBRARY_DIR}/: "
               + ", ".join(res["waiting"]))
-    return 1 if res["failed"] and not res["ingested"] else 0
+    _print_missing_full_text(conn, ws)
+    return 1 if res["failed"] and not (res["ingested"] or res["completed"]) else 0
+
+
+def _print_missing_full_text(conn, ws: Path) -> None:
+    from . import library
+    missing = library.missing_full_text(conn, ws)
+    if not missing:
+        return
+    print(f"\n{len(missing)} ePrint papers have only their abstract: ePrint refuses automated PDF downloads. For "
+          f"each, open the link in your browser, save the PDF under the name shown, then run library fetch again:")
+    for title, url, dest in missing:
+        print(f"  {title[:70]}\n    {url}\n    save as {dest}")
 
 
 def cmd_lessons_list(args: argparse.Namespace) -> int:
@@ -360,8 +377,22 @@ def cmd_ingest_file(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     conn = db.connect(ws / DB_FILE)
     try:
-        res = ingest.ingest_file(conn, Path(args.path).expanduser(), title=args.title, kind=args.kind,
-                                 year=args.year, domains=_domains(args.domains))
+        existing = None
+        if args.eprint:
+            eid = ingest.ax.normalize_eprint_id(args.eprint)
+            if not eid:
+                print(f"not an ePrint id: {args.eprint!r}", file=sys.stderr)
+                return 1
+            existing = ingest.find_source(conn, "eprint", eid)
+        if existing:  # full text for a paper stored as abstract only: keep its id, card and seed read
+            res = ingest.attach_file(conn, existing["id"], Path(args.path).expanduser())
+        else:
+            res = ingest.ingest_file(conn, Path(args.path).expanduser(), title=args.title, kind=args.kind,
+                                     year=args.year, domains=_domains(args.domains))
+            if args.eprint:
+                src = store.get(conn, "sources", res.source_id)
+                store.update(conn, "sources", res.source_id,
+                             identifiers={**(src.get("identifiers") or {}), "eprint": eid})
     except (ValueError, RuntimeError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -637,6 +668,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--year", type=int)
     c.add_argument("--domains")
     c.add_argument("--no-seed", action="store_true", help="index only; do not queue a seed read")
+    c.add_argument("--eprint", help="the paper's ePrint id (e.g. 2015/939): attaches the file to the source "
+                                    "stored with its abstract only, if there is one")
     c.set_defaults(func=cmd_ingest_file)
     c = isub.add_parser("seed", help="queue a seed read for sources already ingested")
     c.add_argument("source_ids", nargs="+")
