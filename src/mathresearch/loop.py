@@ -55,7 +55,7 @@ def _db_path(conn: sqlite3.Connection) -> str | None:
 
 
 def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, workspace: Path, cycles: int,
-               seed: int | None = None, model: str | None = None, max_steps: int = 12,
+               seed: int | None = None, model: str | None = None, max_steps: int | None = None,
                on_outcome: Callable[[RunOutcome], None] | None = None,
                on_reflection: Callable[[Reflection], None] | None = None,
                workers: int = 1, allow_unpriced: bool = False) -> LoopResult:

@@ -277,6 +277,12 @@ left as its own cap, and runs in flight hold their allowance until they
 finish, so parallel workers cannot overshoot together. `status` shows spend
 today and in total, by model; the world digest shows spend by lane.
 
+Each run also has a step budget: the number of model calls it may make
+(harvest 12, deepen 24, open 16; `run --max-steps N` sets one value for all).
+The worker is told its budget up front, warned one step before the end, and
+on the last step asked for its write-back with no further tools, so a long
+reading run ends with what it learned instead of failing.
+
 `max_concurrent_runs` in the charter (or `run --workers N`) runs that many
 questions at once, each worker with its own database connection; the main
 thread alone picks questions, checks the caps and runs the reflection step.

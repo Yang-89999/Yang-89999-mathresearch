@@ -23,6 +23,13 @@ from .tools import registry
 
 EFFORT_BY_LANE = {"harvest": "low", "deepen": "high", "open": "medium"}
 MAX_TOKENS_BY_LANE = {"harvest": 8000, "deepen": 16000, "open": 12000}
+STEPS_BY_LANE = {"harvest": 12, "deepen": 24, "open": 16}   # model calls per run, unless the caller sets max_steps
+
+STEP_BUDGET = ("Step budget: this run may make {n} model calls (each reply of yours is one, whether it calls tools "
+               "or not). Plan your reading and experiments to fit, and return the write-back JSON before they run "
+               "out; an open question with a good summary lets the next run continue.")
+LAST_STEP = ("Step {k} of {n}: your next reply is the last one this run allows. Do not call more tools; return the "
+             "write-back JSON now, recording what you established and leaving the question open if it is unfinished.")
 
 
 WRAP_UP = ("The budget for this run is spent ({reason}). Do not call any more tools. Return the write-back JSON "
@@ -44,7 +51,7 @@ class RunOutcome:
 
 
 def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider, question: dict[str, Any],
-                 workspace: Path, max_steps: int = 12, model: str | None = None,
+                 workspace: Path, max_steps: int | None = None, model: str | None = None,
                  max_usd: float | None = None) -> RunOutcome:
     """Run one worker on ``question``. ``max_usd`` lowers the charter's per-run dollar cap for this run
     (the loop passes what is left under the daily and total caps)."""
@@ -52,6 +59,8 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
     if max_usd is not None and (budget.max_usd_per_run is None or max_usd < budget.max_usd_per_run):
         budget = dataclasses.replace(budget, max_usd_per_run=max_usd)
     lane = question["lane"]
+    if max_steps is None:
+        max_steps = STEPS_BY_LANE.get(lane, 12)
     model_id = model or getattr(provider, "model", None) or provider.default_model
     run_id = store.insert(conn, "runs", question_id=question["id"], lane=lane, provider=provider.name,
                           model=model_id, status="running")
@@ -59,7 +68,8 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
     ctx = registry.ToolContext(conn=conn, workspace=workspace, question=question, run_id=run_id,
                                hidden_attacks=frozenset(charter.hidden_attacks))
     usage = Usage()
-    messages = [Message(role="user", content=[TextBlock(user_prompt(conn, question))])]
+    messages = [Message(role="user", content=[TextBlock(user_prompt(conn, question)),
+                                              TextBlock(STEP_BUDGET.format(n=max_steps))])]
     system = system_prompt(charter, lane, lessons.prompt_block(conn))
     error: str | None = None
     data: dict[str, Any] | None = None
@@ -94,6 +104,11 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                 if over:
                     budget_note = over
                     content.append(TextBlock(WRAP_UP.format(reason=over)))
+                elif steps >= max_steps:  # out of steps with tools still running: one grace reply, no tools
+                    budget_note = f"step limit of {max_steps} reached"
+                    content.append(TextBlock(WRAP_UP.format(reason=budget_note)))
+                elif steps == max_steps - 1:
+                    content.append(TextBlock(LAST_STEP.format(k=steps, n=max_steps)))
                 messages.append(Message(role="user", content=content))
                 continue
 
