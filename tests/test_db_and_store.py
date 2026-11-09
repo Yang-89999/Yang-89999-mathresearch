@@ -16,7 +16,7 @@ def test_schema_created_and_versioned(conn):
     assert db.current_version(conn) == db.SCHEMA_VERSION
     counts = db.table_counts(conn)
     assert set(counts) == {"sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs",
-                           "digests", "reading_notes", "weakness_patterns", "lessons"}
+                           "digests", "reading_notes", "weakness_patterns", "lessons", "paper_requests"}
     assert all(n == 0 for n in counts.values())
 
 

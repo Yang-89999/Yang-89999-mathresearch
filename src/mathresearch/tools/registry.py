@@ -37,22 +37,57 @@ Executor = Callable[[dict[str, Any], ToolContext], str]
 
 
 MAX_DEPS_SHOWN = 8
+TEXTBOOK_KINDS = ("book", "notes")
 DEP_CHARS = 700
 
 
 def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
-    hits = store.search_units(ctx.conn, args["query"], limit=int(args.get("limit", 10)))
+    where = args.get("in") or "all"
+    limit = max(1, min(int(args.get("limit", 10)), 30))
+    hits = store.search_units(ctx.conn, args["query"], limit=limit * 3 if where == "all" else 200)
+    kinds = {s["id"]: s["kind"] for s in store.select(ctx.conn, "sources")}
+    titles: dict[str, str] = {}
+    books = [u for u in hits if kinds.get(u["source_id"]) in TEXTBOOK_KINDS]
+    papers = [u for u in hits if kinds.get(u["source_id"]) not in TEXTBOOK_KINDS]
+    hits = books if where == "books" else papers if where == "papers" else books + papers  # textbooks first
+    hits = hits[:limit]
     if not hits:
-        return "No knowledge units match. The knowledge base may not cover this yet; consider a 'learn' question."
+        more = " in the textbooks" if where == "books" else ""
+        return (f"No knowledge units match{more}. The knowledge base may not cover this yet: reason from what you "
+                "know (say so), search_literature, or request_paper for a text you need.")
     lines = []
     for u in hits:
-        lines.append(f"[{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}".strip())
+        if u["source_id"] not in titles:
+            src = store.get(ctx.conn, "sources", u["source_id"]) or {}
+            titles[u["source_id"]] = (src.get("title") or "")[:60]
+        tag = "textbook" if kinds.get(u["source_id"]) in TEXTBOOK_KINDS else "paper"
+        lines.append(f"[{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}".strip()
+                     + f"  ({tag}: {titles[u['source_id']]})")
         lines.append("  " + (u["statement"][:400] + ("..." if len(u["statement"]) > 400 else "")))
         deps = [d for d in (store.get(ctx.conn, "units", i) for i in (u.get("depends_on") or [])) if d]
         if deps:
             lines.append("  uses: " + ", ".join(f"[{d['id']}] {d['kind']} {d.get('label') or ''}".strip()
                                                 for d in deps) + " (open_unit shows their statements)")
     return "\n".join(lines)
+
+
+def _request_paper(args: dict[str, Any], ctx: ToolContext) -> str:
+    from .. import wanted
+
+    citation = (args.get("citation") or "").strip()
+    why = (args.get("why") or "").strip()
+    if not citation or not why:
+        return "Give the citation (authors, title, year) and why you need the full text."
+    r = wanted.request(ctx.conn, citation, why, reference=args.get("reference") or None,
+                       question_id=ctx.question.get("id"), run_id=ctx.run_id)
+    if r["status"] == "available":
+        return (f"The full text is already in the knowledge base as {r['source_id']}: read_source it (card, "
+                "outline, then the section you need).")
+    seen = "" if r["new"] else f" (asked {r['times']} times so far)"
+    return (f"Requested as {r['id']}{seen}. The operator downloads requested texts between runs; it will not "
+            "arrive during this run. Continue now from what you know of it: state the result you rely on as you "
+            "remember it, mark it 'from memory, not checked against the text', give such findings lower "
+            "confidence, and look for the same material in the textbooks (search_units with in 'books').")
 
 
 def _search_findings(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -320,6 +355,10 @@ def _ingest_source(args: dict[str, Any], ctx: ToolContext) -> str:
                                  f"{u['statement'][:160]}" for u in units if u)
         if result.units > 12:
             text += f"\n  ... {result.units - 12} more; use search_units to find them."
+    if src and src.get("format") == "html":
+        text += ("\nOnly the title, authors and abstract are available (ePrint refuses automated downloads). If the "
+                 "full text would change a decision, call request_paper with this reference and why; then continue "
+                 "from what you know.")
     if result.units == 0 and not result.already_present:
         text += ("\nNo theorem-like environments were found. The source is stored; cite it as evidence_kind "
                  "'source' with the source id and page or section.")
@@ -337,7 +376,9 @@ def _list_sources(args: dict[str, Any], ctx: ToolContext) -> str:
         ref = ids.get("arxiv") and f"arXiv:{ids['arxiv']}" or ids.get("eprint") and f"ePrint {ids['eprint']}" or ""
         card = "card" if r.get("card") else "no card"
         by = f", {r['provided_by']}" if r.get("provided_by") else ""
-        out.append(f"[{r['id']}] {r['title']} ({r.get('year') or '?'}) {ref} [{r.get('format')}] {n} units, "
+        kind = "textbook" if r.get("kind") in TEXTBOOK_KINDS else r.get("kind") or "paper"
+        text = "abstract only" if r.get("format") == "html" else r.get("format")
+        out.append(f"[{r['id']}] {kind}: {r['title']} ({r.get('year') or '?'}) {ref} [{text}] {n} units, "
                    f"{card}{by}")
     return "\n".join(out)
 
@@ -590,11 +631,29 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
         ToolSpec(
             name="search_units",
             description="Full-text search (BM25) over the knowledge base of definitions, theorems, algorithms and "
-                        "examples. Use exact mathematical terms (e.g. 'Groebner basis', 'syzygy', 'MinRank').",
+                        "examples. Use exact mathematical terms (e.g. 'Groebner basis', 'syzygy', 'MinRank'). "
+                        "Hits from the classical textbooks come first; 'in' restricts to 'books' or 'papers'.",
             input_schema={"type": "object", "properties": {
                 "query": {"type": "string", "description": "FTS5 query; words are ANDed, quote phrases."},
+                "in": {"type": "string", "enum": ["all", "books", "papers"],
+                       "description": "'books' = textbooks and lecture notes only; default all, textbooks first."},
                 "limit": {"type": "integer", "description": "Max hits, 1-30."}}},
         ), _search_units),
+    "request_paper": (
+        ToolSpec(
+            name="request_paper",
+            description="Ask the operator for a paper or book whose full text you need but cannot get here "
+                        "(ePrint papers arrive as abstract only; textbooks and journal versions are paywalled). "
+                        "Give the citation, an ePrint/arXiv id or DOI when you know it, and why: the question "
+                        "and the decision the full text would change. The operator downloads requested texts "
+                        "between runs. Never wait for it: continue from what you know and mark such claims "
+                        "'from memory'.",
+            input_schema={"type": "object", "properties": {
+                "citation": {"type": "string", "description": "authors, title, year (and venue)"},
+                "reference": {"type": "string", "description": "e.g. '2022/975', 'arXiv:1512.03547', a DOI; or empty"},
+                "why": {"type": "string", "description": "what you need from it and which decision it changes"}},
+                "required": ["citation", "why"]},
+        ), _request_paper),
     "open_unit": (
         ToolSpec(
             name="open_unit",

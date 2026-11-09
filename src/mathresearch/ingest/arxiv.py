@@ -165,6 +165,44 @@ def arxiv_search(query: str, max_results: int = 10, fetch: Fetch = http_fetch,
     return _parse_atom(fetch(f"{ARXIV_API}?{params}"))
 
 
+def norm_title(title: str) -> str:
+    """Lower-case words only: drops TeX math, accents' markup and punctuation, for comparing titles."""
+    t = re.sub(r"\$[^$]*\$", " ", title.lower())
+    t = re.sub(r"\\[a-z]+", " ", t)
+    return re.sub(r"[^0-9a-z]+", " ", t).strip()
+
+
+def _surnames(authors: list[str]) -> set[str]:
+    return {norm_title(a).split()[-1] for a in authors if norm_title(a)}
+
+
+def find_arxiv_copy(title: str, authors: list[str] | None = None, fetch: Fetch = http_fetch,
+                    delay: float = 3.0, min_ratio: float = 0.9) -> PaperMeta | None:
+    """An arXiv version of a paper known by title (e.g. an ePrint paper whose PDF we may not download).
+
+    Searches arXiv titles for the exact phrase, then for all title words; a hit counts only when its title
+    matches closely (``min_ratio``) and, when both author lists are known, they share a surname."""
+    from difflib import SequenceMatcher
+
+    want = norm_title(title)
+    words = want.split()
+    if len(words) < 3:
+        return None
+    names = _surnames(authors or [])
+    queries = [f'ti:"{want}"', " AND ".join(f"ti:{w}" for w in words if len(w) > 2)]
+    for i, q in enumerate(queries):
+        if i:
+            polite_sleep(delay)
+        for hit in arxiv_search(q, max_results=5, fetch=fetch):
+            if SequenceMatcher(None, norm_title(hit.title), want).ratio() < min_ratio:
+                continue
+            got = _surnames(hit.authors)
+            if names and got and not names & got:
+                continue
+            return hit
+    return None
+
+
 # -- source download -------------------------------------------------------------
 
 def _is_within(root: Path, target: Path) -> bool:

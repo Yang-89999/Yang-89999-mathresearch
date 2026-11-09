@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -243,6 +243,24 @@ INSERT INTO problems_fts(problems_fts) VALUES ('rebuild');
 ALTER TABLE units ADD COLUMN cites TEXT;
 ALTER TABLE sources ADD COLUMN bibliography TEXT;
 """,
+    7: """
+-- Papers and books the agents asked for but could not read in full here (ePrint refuses automated PDF
+-- downloads; textbooks and journal versions are paywalled). The operator supplies them between runs.
+CREATE TABLE IF NOT EXISTS paper_requests (
+    id          TEXT PRIMARY KEY,
+    citation    TEXT NOT NULL,
+    reference   TEXT,
+    whys        TEXT,
+    source_id   TEXT REFERENCES sources(id) ON DELETE SET NULL,
+    question_id TEXT REFERENCES questions(id) ON DELETE SET NULL,
+    run_id      TEXT,
+    status      TEXT NOT NULL DEFAULT 'wanted' CHECK (status IN ('wanted', 'supplied', 'dismissed')),
+    times       INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_paper_requests_status ON paper_requests(status);
+""",
 }
 
 
@@ -252,5 +270,5 @@ def _read_schema() -> str:
 
 def table_counts(conn: sqlite3.Connection) -> dict[str, int]:
     tables = ["sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs",
-              "digests", "reading_notes", "weakness_patterns", "lessons"]
+              "digests", "reading_notes", "weakness_patterns", "lessons", "paper_requests"]
     return {t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tables}

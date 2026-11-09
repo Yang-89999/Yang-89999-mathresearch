@@ -63,7 +63,7 @@ mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-6-ast
 
 Each cycle picks a question (lane chosen by the charter's shares), assembles
 the worker's context from the database, runs the model with tools
-(`search_units`, `open_unit`, `read_source`, `search_literature`, `ingest_source`,
+(`search_units`, `open_unit`, `follow`, `read_source`, `search_literature`, `ingest_source`, `request_paper`,
 `list_sources`, `run_script`, `run_attack`, `ladder_evaluate`, `sample_instance`, `submit_attack`,
 `list_catalog`, `list_weakness_patterns`, `list_lessons`, `read_problem`, `read_question`) and applies its structured
 write-back: findings with evidence, new questions with what sparked them (a knowledge gap opens a `learn`
@@ -225,13 +225,27 @@ Textbooks are paywalled, so the system cannot download them: put your copy at
 `library fetch` ingests it; `library list` prints the exact path for each one. Everything the list
 brings in counts as an operator reference and gets a seed read.
 
-IACR ePrint refuses automated PDF downloads, so an ePrint paper first comes in as its abstract only.
-To give the agents the whole paper, open the PDF link in a browser and save it under the path
-`library fetch` prints (`~/research/library/<id>.pdf`, or the ePrint number such as `2015-939.pdf`);
-the next `library fetch` attaches the full text to the same source, so its seed read and links stay.
-When a paper also has an arXiv copy, the entry points at arXiv and the LaTeX comes in automatically.
-For an ePrint paper the agents found themselves, `ingest file paper.pdf --eprint 2022/975` does the same.
-PDFs need the optional parser: `pip install -e ".[pdf]"`. `status` counts the papers still abstract-only.
+**Textbooks first.** The agents look for definitions, standard theorems and classical algorithms in
+the textbooks before papers: `search_units` lists textbook hits first, and `in: books` restricts to them.
+Papers serve recent results, attacks and parameters.
+
+**Papers the system cannot fetch.** IACR ePrint refuses automated PDF downloads, so an ePrint paper
+comes in as its abstract only (the system first looks for an arXiv version by title and author, and takes
+its LaTeX when there is one). The agents keep working without the full text: they state what they
+remember of a paper, mark it "from memory, not checked against the text", and call `request_paper` with
+why they need it when it would change a decision. You decide what to download:
+
+```bash
+mathresearch --dir ~/research library wanted     # what the agents asked for, how often, and why
+mathresearch --dir ~/research library open       # opens the PDF links of abstract-only papers in your browser
+mathresearch --dir ~/research library fetch      # attaches PDFs found in ~/Downloads (matched by ePrint number,
+                                                 # checked against the title) or under library/
+mathresearch --dir ~/research library dismiss want_...   # drop a request you will not fulfil
+```
+
+Attaching keeps the paper's id, seed read and links, and closes its request. For a paper outside the
+list, `ingest file paper.pdf --eprint 2022/975` does the same. PDFs need the optional parser:
+`pip install -e ".[pdf]"`. `status` counts abstract-only papers and open requests.
 
 ## Lessons from the field
 
