@@ -164,7 +164,7 @@ def test_catalog_loads_and_is_idempotent(tmp_path):
     first = catalog.load(conn)
     assert first["problems"] >= 15 and first["attacks"] >= 20 and first["weakness_patterns"] >= 10
     second = catalog.load(conn)
-    assert second == {"problems": 0, "attacks": 0, "weakness_patterns": 0}
+    assert second == {"problems": 0, "attacks": 0, "weakness_patterns": 0, "lessons": 0}
     mq = store.get(conn, "problems", "prob_known_mq")
     assert mq["status"] == "known" and mq["generator_path"] == "mq" and isinstance(mq["best_attacks"], list)
     patarin = store.get(conn, "attacks", "atk_patarin_linearization_equations")

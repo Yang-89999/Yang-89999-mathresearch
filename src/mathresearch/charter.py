@@ -48,6 +48,14 @@ class ReadingPolicy:
 
 
 @dataclass
+class ReviewPolicy:
+    """Timely reviews of candidates through lessons from experts' published work."""
+    enabled: bool = True
+    max_per_reflection: int = 2        # review questions the reflection step may open at once
+    from_status: str = "well_defined"  # first ladder status at which a candidate is reviewed
+
+
+@dataclass
 class Charter:
     objective: str
     domains: list[str]
@@ -62,6 +70,7 @@ class Charter:
     budget: Budget = field(default_factory=Budget)
     pricing: dict[str, Price] = field(default_factory=dict)   # $ per million tokens, per model id
     reading: ReadingPolicy = field(default_factory=ReadingPolicy)
+    reviews: ReviewPolicy = field(default_factory=ReviewPolicy)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Charter":
@@ -97,6 +106,7 @@ class Charter:
             budget=_budget(data.get("budget")),
             pricing=_pricing(data.get("pricing")),
             reading=_reading(data.get("reading")),
+            reviews=_reviews(data.get("reviews")),
         )
 
     @classmethod
@@ -161,6 +171,22 @@ def _reading(data) -> ReadingPolicy:
         raise CharterError("charter.reading.max_prior_share must be between 0 and 1")
     return ReadingPolicy(seed_operator_references=bool(data.get("seed_operator_references", True)),
                          max_prior_share=share)
+
+
+def _reviews(data) -> ReviewPolicy:
+    if not data:
+        return ReviewPolicy()
+    if not isinstance(data, dict):
+        raise CharterError("charter.reviews must be a mapping")
+    unknown = set(data) - {"enabled", "max_per_reflection", "from_status"}
+    if unknown:
+        raise CharterError(f"charter.reviews: unknown fields {sorted(unknown)}")
+    statuses = ("idea", "well_defined", "not_trivially_broken", "not_known", "useful_structure")
+    from_status = str(data.get("from_status", "well_defined"))
+    if from_status not in statuses:
+        raise CharterError(f"charter.reviews.from_status must be one of {list(statuses)}")
+    return ReviewPolicy(enabled=bool(data.get("enabled", True)),
+                        max_per_reflection=max(0, int(data.get("max_per_reflection", 2))), from_status=from_status)
 
 
 def _pricing(data) -> dict[str, Price]:
@@ -246,4 +272,12 @@ pricing: {}
 reading:
   seed_operator_references: true
   max_prior_share: 0.5
+# Lessons from the published work of Regev, Peikert, Ducas, Lyubashevsky and
+# Bai (catalog/expert_lessons.yaml) appear in every worker prompt. When a
+# candidate reaches a new ladder status (from from_status on), the reflection
+# step opens a review of it through one expert's lessons, rotating experts.
+reviews:
+  enabled: true
+  max_per_reflection: 2
+  from_status: well_defined
 """

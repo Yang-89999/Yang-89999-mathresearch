@@ -24,6 +24,7 @@ _JSON_COLUMNS = {
     "digests": {"stats", "actions"},
     "reading_notes": {"ideas", "patterns", "unit_ids"},
     "weakness_patterns": {"applies_to", "exploited_by", "examples", "refs"},
+    "lessons": {"experts", "applies_to", "refs", "sources"},
 }
 
 _ID_KIND = {
@@ -38,6 +39,7 @@ _ID_KIND = {
     "digests": "digest",
     "reading_notes": "reading_note",
     "weakness_patterns": "weakness_pattern",
+    "lessons": "lesson",
 }
 
 

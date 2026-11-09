@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -158,6 +158,21 @@ CREATE TABLE IF NOT EXISTS weakness_patterns (
 -- Per-candidate audit: {pattern_id: {"status": avoided|vulnerable|untested|not_applicable, "evidence_id", "note"}}
 ALTER TABLE problems ADD COLUMN weakness_audit TEXT;
 """,
+    4: """
+-- Lessons from the published work of named experts (catalog/expert_lessons.yaml): shown in every worker prompt
+-- and used for timely reviews of candidates. Paraphrased principles with references, not quotations.
+CREATE TABLE IF NOT EXISTS lessons (
+    id          TEXT PRIMARY KEY,
+    experts     TEXT NOT NULL,        -- JSON list of names
+    title       TEXT NOT NULL,
+    lesson      TEXT NOT NULL,
+    check_text  TEXT,                 -- what a worker should do with the lesson
+    applies_to  TEXT,                 -- JSON list of domain tags
+    refs        TEXT,                 -- JSON list
+    sources     TEXT,                 -- JSON list of ePrint / arXiv ids
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+""",
 }
 
 
@@ -167,5 +182,5 @@ def _read_schema() -> str:
 
 def table_counts(conn: sqlite3.Connection) -> dict[str, int]:
     tables = ["sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs",
-              "digests", "reading_notes", "weakness_patterns"]
+              "digests", "reading_notes", "weakness_patterns", "lessons"]
     return {t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tables}
