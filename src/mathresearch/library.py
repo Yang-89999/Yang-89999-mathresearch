@@ -9,6 +9,7 @@ gets a seed read.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import sqlite3
@@ -181,7 +182,7 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
         if not _complete(conn, workspace, None, src, fetch_fn, delay, report, result, downloads, rivals):
             result["abstract_only"].append(name)
     result["sectioned"] = add_missing_sections(conn, report)
-    result["unmatched"] = [str(p) for p in recent_unmatched(downloads, result.get("picked", []))]
+    result["unmatched"] = [str(p) for p in recent_unmatched(downloads, result.get("picked", []), conn)]
     for path in result["unmatched"]:
         report(f"not matched to any paper: {path} (use 'ingest file <pdf> --eprint YYYY/NNNN' or --title)")
     return result
@@ -222,15 +223,46 @@ def _record_requests(conn: sqlite3.Connection, workspace: Path, fetch_fn: ingest
     return done
 
 
-def recent_unmatched(downloads: Path | None, picked: list[str], days: float = 2) -> list[Path]:
-    """PDFs that arrived in Downloads in the last ``days`` days and were not matched to any paper."""
+def _digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _in_library(conn: sqlite3.Connection | None) -> Callable[[Path], bool]:
+    """A test whether a file is a byte-for-byte copy of a PDF the knowledge base already holds."""
+    if conn is None:
+        return lambda p: False
+    files = [Path(s["path"]) for s in store.select(conn, "sources", "format = 'pdf' AND path IS NOT NULL")]
+    files = [f for f in files if f.is_file()]
+    by_size: dict[int, list[Path]] = {}
+    for f in files:
+        by_size.setdefault(f.stat().st_size, []).append(f)
+    digests: dict[Path, str] = {}
+
+    def held(p: Path) -> bool:
+        same = by_size.get(p.stat().st_size, [])
+        if not same:
+            return False
+        d = _digest(p)
+        return any(digests.setdefault(f, _digest(f)) == d for f in same)
+    return held
+
+
+def recent_unmatched(downloads: Path | None, picked: list[str], conn: sqlite3.Connection | None = None,
+                     days: float = 2) -> list[Path]:
+    """PDFs that arrived in Downloads in the last ``days`` days, were not matched to any paper this time, and are
+    not a copy of a file the knowledge base already holds (picked up by an earlier fetch, or placed by hand)."""
     if downloads is None or not Path(downloads).expanduser().is_dir():
         return []
     cutoff = time.time() - days * 86400
     taken = {str(Path(p).resolve()) for p in picked}
+    held = _in_library(conn)
     return sorted(p for p in Path(downloads).expanduser().iterdir()
                   if p.is_file() and p.suffix.lower() == ".pdf" and p.stat().st_mtime >= cutoff
-                  and str(p.resolve()) not in taken)
+                  and str(p.resolve()) not in taken and not held(p))
 
 
 def _complete(conn: sqlite3.Connection, workspace: Path, e: dict[str, Any] | None, src: dict[str, Any],
