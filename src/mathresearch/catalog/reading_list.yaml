@@ -233,8 +233,9 @@
   authors: [Zhengfeng Ji, Youming Qiao, Fang Song, Aaram Yun]
   year: 2019
   kind: paper
-  access: eprint
-  ref: "2019/687"
+  access: arxiv
+  ref: "arXiv:1906.04330"
+  eprint: "2019/687"
   topics: [group_actions]
   domains: [computational representation theory]
   why: "How a classification problem from algebra was turned into a cryptographic group action, with the security arguments it needed."

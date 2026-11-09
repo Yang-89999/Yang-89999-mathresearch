@@ -225,6 +225,14 @@ Textbooks are paywalled, so the system cannot download them: put your copy at
 `library fetch` ingests it; `library list` prints the exact path for each one. Everything the list
 brings in counts as an operator reference and gets a seed read.
 
+IACR ePrint refuses automated PDF downloads, so an ePrint paper first comes in as its abstract only.
+To give the agents the whole paper, open the PDF link in a browser and save it under the path
+`library fetch` prints (`~/research/library/<id>.pdf`, or the ePrint number such as `2015-939.pdf`);
+the next `library fetch` attaches the full text to the same source, so its seed read and links stay.
+When a paper also has an arXiv copy, the entry points at arXiv and the LaTeX comes in automatically.
+For an ePrint paper the agents found themselves, `ingest file paper.pdf --eprint 2022/975` does the same.
+PDFs need the optional parser: `pip install -e ".[pdf]"`. `status` counts the papers still abstract-only.
+
 ## Lessons from the field
 
 `catalog load` also loads thirteen lessons drawn from the published work of Oded Regev, Chris Peikert,

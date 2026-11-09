@@ -185,6 +185,50 @@ def ingest_file(conn: sqlite3.Connection, path: Path, *, title: str | None = Non
                        year=year, kind=kind, domains=domains)
 
 
+def attach_file(conn: sqlite3.Connection, source_id: str, path: Path,
+                identifiers: dict | None = None) -> IngestResult:
+    """Give an existing source its full text from a local file or LaTeX directory: its units are replaced by
+    the ones parsed from ``path``; its id, identifiers, card, notes and seed question stay. Used when a paper
+    was stored as abstract only (ePrint refuses automated PDF downloads) and the operator supplies the file."""
+    src = store.get(conn, "sources", source_id)
+    if src is None:
+        raise ValueError(f"no source {source_id}")
+    path = Path(path)
+    ids = dict(src.get("identifiers") or {})
+    ids.update(identifiers or {})
+    conn.execute("DELETE FROM units WHERE source_id = ?", (source_id,))
+    domains = src.get("domains") or None
+    if path.is_dir():
+        store.update(conn, "sources", source_id, identifiers=ids or None, path=str(path), format="latex")
+        res = ingest_latex_dir(conn, path, title=src["title"], domains=domains, source_id=source_id)
+    elif path.suffix.lower() == ".tex":
+        doc = parse(path.read_text(encoding="utf-8", errors="replace"), read=_reader(path.parent), file=path.name)
+        store.update(conn, "sources", source_id, identifiers=ids or None, path=str(path), format="latex")
+        res = _finish(conn, source_id, src["title"], "latex", doc.units, domains, bib=doc.bibliography)
+    else:
+        if path.suffix.lower() == ".pdf":
+            try:
+                text, fmt = pdf_to_text(path), "pdf"
+            except ImportError as exc:
+                raise RuntimeError("PDF ingestion needs pypdf: pip install 'mathresearch[pdf]'") from exc
+        else:
+            text, fmt = path.read_text(encoding="utf-8", errors="replace"), "text"
+        store.update(conn, "sources", source_id, identifiers=ids or None, path=str(path), format=fmt)
+        res = ingest_text(conn, text, title=src["title"], path=str(path), fmt=fmt, domains=domains,
+                          source_id=source_id)
+    res.note = ((res.note + "; ") if res.note else "") + "full text attached to the existing source"
+    return res
+
+
+def abstract_only(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Sources stored with title and abstract only (ePrint refused the PDF): the operator can supply the file."""
+    return store.select(conn, "sources", "format = 'html' AND identifiers LIKE '%\"eprint\"%'", order="created_at")
+
+
+def eprint_pdf_url(eprint_id: str) -> str:
+    return f"https://eprint.iacr.org/{eprint_id}.pdf"
+
+
 def _reader(root: Path):
     from .latex import file_reader
     return file_reader(root)
@@ -263,8 +307,9 @@ def ingest_eprint(conn: sqlite3.Connection, ref: str, workspace: Path, *, domain
     if pdf is None:
         units = [LatexUnit(kind="remark", env="abstract", statement=meta.summary, title="Abstract")] \
             if meta.summary else []
-        note = (f"{blocked}; stored title, authors and abstract only. To index the full text, download the PDF "
-                f"in a browser and run: mathresearch ingest file <paper.pdf> --title \"{meta.title[:60]}\"")
+        note = (f"{blocked}; stored title, authors and abstract only. To index the full text, open "
+                f"{eprint_pdf_url(eprint_id)} in a browser, save the PDF, and run: "
+                f"mathresearch ingest file <paper.pdf> --eprint {eprint_id}")
         return _finish(conn, source_id, meta.title, "html", units, domains, note=note)
     try:
         text = pdf_to_text(pdf)
