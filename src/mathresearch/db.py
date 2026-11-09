@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -236,6 +236,12 @@ CREATE TRIGGER IF NOT EXISTS problems_fts_au AFTER UPDATE ON problems BEGIN
     INSERT INTO problems_fts(rowid, id, name, objects, forward_map, distribution, hidden, structure, quantum_notes) VALUES (new.rowid, new.id, new.name, new.objects, new.forward_map, new.distribution, new.hidden, new.structure, new.quantum_notes);
 END;
 INSERT INTO problems_fts(problems_fts) VALUES ('rebuild');
+""",
+    6: """
+-- The logical structure of a paper: which units a unit uses (units.depends_on, resolved from \\ref labels),
+-- the works it cites (units.cites, bibliography keys) and the paper's bibliography with any arXiv/ePrint/DOI ids.
+ALTER TABLE units ADD COLUMN cites TEXT;
+ALTER TABLE sources ADD COLUMN bibliography TEXT;
 """,
 }
 

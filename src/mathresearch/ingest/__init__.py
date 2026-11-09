@@ -81,16 +81,37 @@ def _existing_result(conn: sqlite3.Connection, src: dict[str, Any]) -> IngestRes
 
 def store_units(conn: sqlite3.Connection, source_id: str, units: Iterable[LatexUnit],
                 domains: list[str] | None) -> list[str]:
+    units = list(units)[:MAX_UNITS_PER_SOURCE]
     ids = []
-    for u in list(units)[:MAX_UNITS_PER_SOURCE]:
+    for u in units:
         ids.append(store.insert(conn, "units", source_id=source_id, kind=u.kind, label=u.label, title=u.title,
-                                statement=u.statement, anchor=u.anchor(), domains=domains or None))
+                                statement=u.statement, anchor=u.anchor(), domains=domains or None,
+                                proof_sketch=getattr(u, "proof", None), cites=getattr(u, "cites", None) or None))
+    link_units(conn, units, ids)
     return ids
 
 
+def link_units(conn: sqlite3.Connection, units: list[LatexUnit], ids: list[str]) -> int:
+    """Resolve each unit's \\ref labels to the units that carry them (depends_on). Returns links made."""
+    by_label: dict[str, str] = {}
+    for u, uid in zip(units, ids):
+        for lab in (getattr(u, "labels", None) or ([u.label] if u.label else [])):
+            by_label.setdefault(lab, uid)
+    links = 0
+    for u, uid in zip(units, ids):
+        deps = list(dict.fromkeys(by_label[r] for r in (getattr(u, "refs", None) or [])
+                                  if r in by_label and by_label[r] != uid))
+        if deps:
+            store.update(conn, "units", uid, depends_on=deps)
+            links += len(deps)
+    return links
+
+
 def _finish(conn: sqlite3.Connection, source_id: str, title: str, fmt: str, units: list[LatexUnit],
-            domains: list[str] | None, note: str = "") -> IngestResult:
+            domains: list[str] | None, note: str = "", bib: dict | None = None) -> IngestResult:
     ids = store_units(conn, source_id, units, domains)
+    if bib:
+        store.update(conn, "sources", source_id, bibliography=bib)
     store.update(conn, "sources", source_id, ingested_at=store._now(conn))
     kinds = Counter(u.kind for u in units[:MAX_UNITS_PER_SOURCE])
     if len(units) > MAX_UNITS_PER_SOURCE:
@@ -115,22 +136,26 @@ def ingest_latex_dir(conn: sqlite3.Connection, root: Path, *, title: str | None 
                                  identifiers=identifiers or None, url=url, path=str(root), format="latex",
                                  domains=domains or None)
     note = f"{len(doc.environments)} theorem-like environments recognised"
-    return _finish(conn, source_id, title, "latex", doc.units, domains, note)
+    if doc.bibliography:
+        note += f"; {len(doc.bibliography)} bibliography entries"
+    return _finish(conn, source_id, title, "latex", doc.units, domains, note, bib=doc.bibliography)
 
 
 def ingest_text(conn: sqlite3.Connection, text: str, *, title: str, path: str | None = None, fmt: str = "text",
                 authors: list[str] | None = None, year: int | None = None, kind: str = "notes",
                 identifiers: dict | None = None, url: str | None = None, domains: list[str] | None = None,
                 source_id: str | None = None) -> IngestResult:
+    bib = None
     if fmt == "latex":
-        units = parse(text, file=path).units
+        doc = parse(text, file=path)
+        units, bib = doc.units, doc.bibliography
     else:
         units = extract_units_from_text(text, file=path)
     if source_id is None:
         source_id = store.insert(conn, "sources", kind=kind, title=title, authors=authors or None, year=year,
                                  identifiers=identifiers or None, url=url, path=path, format=fmt,
                                  domains=domains or None)
-    return _finish(conn, source_id, title, fmt, units, domains)
+    return _finish(conn, source_id, title, fmt, units, domains, bib=bib)
 
 
 def ingest_file(conn: sqlite3.Connection, path: Path, *, title: str | None = None, kind: str = "paper",
@@ -146,7 +171,8 @@ def ingest_file(conn: sqlite3.Connection, path: Path, *, title: str | None = Non
         source_id = store.insert(conn, "sources", kind=kind, title=title or doc.title or path.stem,
                                  authors=authors or doc.authors or None, year=year, path=str(path),
                                  format="latex", domains=domains or None)
-        return _finish(conn, source_id, title or doc.title or path.stem, "latex", doc.units, domains)
+        return _finish(conn, source_id, title or doc.title or path.stem, "latex", doc.units, domains,
+                       bib=doc.bibliography)
     if suffix == ".pdf":
         try:
             text = pdf_to_text(path)
@@ -274,3 +300,43 @@ def search(conn: sqlite3.Connection, query: str, max_results: int = 10,
 
 __all__ = ["IngestResult", "find_source", "ingest_arxiv", "ingest_eprint", "ingest_file", "ingest_latex_dir",
            "ingest_reference", "ingest_text", "search", "store_units"]
+
+
+# -- the logical structure of sources ingested before it was recorded -------------------
+
+def relink(conn: sqlite3.Connection, source_id: str | None = None) -> dict[str, Any]:
+    """Re-read the LaTeX of already-ingested sources and fill in what older ingestion did not record:
+    depends_on (resolved \\ref links), cites, proofs, the bibliography. Units keep their ids (matched by
+    file and line); nothing is deleted. Sources whose files are gone are skipped."""
+    where, params = ("id = ?", (source_id,)) if source_id else ("format = 'latex'", ())
+    out: dict[str, Any] = {"sources": 0, "units": 0, "links": 0, "skipped": []}
+    for src in store.select(conn, "sources", where, params):
+        path = Path(src["path"]) if src.get("path") else None
+        if src.get("format") != "latex" or path is None or not path.exists():
+            out["skipped"].append(src["id"])
+            continue
+        if path.is_dir():
+            doc = parse_directory(path)
+        else:
+            doc = parse(path.read_text(encoding="utf-8", errors="replace"), read=_reader(path.parent),
+                        file=path.name)
+        if doc is None:
+            out["skipped"].append(src["id"])
+            continue
+        existing = {((u.get("anchor") or {}).get("file"), (u.get("anchor") or {}).get("line")): u["id"]
+                    for u in store.select(conn, "units", "source_id = ?", (src["id"],))}
+        units, ids = [], []
+        for u in doc.units:
+            uid = existing.get((u.file, u.line))
+            if uid is None:
+                continue
+            store.update(conn, "units", uid, anchor=u.anchor(), cites=u.cites or None,
+                         proof_sketch=u.proof)
+            units.append(u)
+            ids.append(uid)
+        out["links"] += link_units(conn, units, ids)
+        if doc.bibliography:
+            store.update(conn, "sources", src["id"], bibliography=doc.bibliography)
+        out["sources"] += 1
+        out["units"] += len(ids)
+    return out

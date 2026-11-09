@@ -53,6 +53,10 @@ class LatexUnit:
     section: str | None = None
     line: int = 0
     file: str | None = None
+    labels: list[str] = field(default_factory=list)   # every \label inside (the unit's own, its equations')
+    refs: list[str] = field(default_factory=list)     # labels it points to with \ref, \eqref, \cref, ...
+    cites: list[str] = field(default_factory=list)    # bibliography keys it \cites
+    proof: str | None = None                          # the proof environment right after it, if any
 
     def anchor(self) -> dict:
         a: dict = {"line": self.line}
@@ -62,6 +66,8 @@ class LatexUnit:
             a["section"] = self.section
         if self.label:
             a["label"] = self.label
+        if len(self.labels) > 1:
+            a["labels"] = self.labels
         return a
 
 
@@ -72,6 +78,7 @@ class LatexDocument:
     units: list[LatexUnit]
     environments: dict[str, str] = field(default_factory=dict)  # env -> kind
     macros: dict[str, str] = field(default_factory=dict)
+    bibliography: dict[str, dict] = field(default_factory=dict)  # cite key -> {"text", "arxiv", "eprint", "doi"}
 
 
 # -- preprocessing -------------------------------------------------------------
@@ -200,6 +207,48 @@ _SECTION = re.compile(r"\\(section|subsection|chapter)\*?\s*(?:\[[^\]]*\])?\s*\{
 _BEGIN = re.compile(r"\\begin\{([A-Za-z*0-9]+)\}")
 _LABEL = re.compile(r"\\label\{([^}]+)\}")
 _CAPTION = re.compile(r"\\caption\{")
+_REF = re.compile(r"\\(?:ref|eqref|cref|Cref|autoref|nameref|vref|Vref|cpageref|labelcref)\*?\{([^}]+)\}")
+_CITE = re.compile(r"\\(?:cite|citep|citet|citealp|citealt|citeauthor|citeyear|parencite|textcite|autocite|"
+                   r"footcite|Cite|Citep|Citet)\*?(?:\[[^\]]*\]){0,2}\{([^}]+)\}")
+_PROOF_START = re.compile(r"\s*\\begin\{proof\}")
+_BIBITEM = re.compile(r"\\bibitem\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}")
+_ARXIV_ID = re.compile(r"(?:arXiv[:\s]*|arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Z]{2})?/\d{7})",
+                       re.IGNORECASE)
+_EPRINT_ID = re.compile(r"(?:eprint\.iacr\.org/|Cryptology\s+e?Print\s+Archive[^0-9]{0,40}(?:Report\s+)?)"
+                        r"(\d{4})/(\d{3,5})", re.IGNORECASE)
+_DOI = re.compile(r"\b(10\.\d{4,9}/[^\s{},]+)")
+MAX_PROOF_CHARS = 6000
+
+
+def _keys(pattern: re.Pattern, text: str) -> list[str]:
+    out: dict[str, None] = {}
+    for m in pattern.finditer(text):
+        for k in m.group(1).split(","):
+            k = k.strip()
+            if k:
+                out.setdefault(k, None)
+    return list(out)
+
+
+def bibliography(text: str) -> dict[str, dict]:
+    """``\\bibitem`` entries (from thebibliography or a .bbl file): key -> text and any arXiv/ePrint/DOI id."""
+    items = list(_BIBITEM.finditer(text))
+    out: dict[str, dict] = {}
+    for i, m in enumerate(items):
+        end = items[i + 1].start() if i + 1 < len(items) else len(text)
+        raw = text[m.end():end]
+        stop = raw.find("\\end{thebibliography}")
+        if stop >= 0:
+            raw = raw[:stop]
+        entry: dict = {"text": " ".join(_strip_simple_commands(raw.replace("\\newblock", " ")).split())[:600]}
+        if a := _ARXIV_ID.search(raw):
+            entry["arxiv"] = a.group(1)
+        if e := _EPRINT_ID.search(raw):
+            entry["eprint"] = f"{e.group(1)}/{e.group(2)}"
+        if d := _DOI.search(raw):
+            entry["doi"] = d.group(1).rstrip(".")
+        out[m.group(1).strip()] = entry
+    return out
 _TITLE_CMD = re.compile(r"\\title\s*(?:\[[^\]]*\])?\s*\{")
 _AUTHOR_CMD = re.compile(r"\\author\s*(?:\[[^\]]*\])?\s*\{")
 _WS = re.compile(r"[ \t]+")
@@ -321,10 +370,21 @@ def extract_units(text: str, envs: dict[str, str] | None = None, file: str | Non
         statement = clean_text(expand_macros(body, expand or {}))
         if title:
             title = _strip_simple_commands(expand_macros(title, expand or {}))
+        after = end + len(f"\\end{{{env}}}")
+        proof_raw, proof = "", None
+        pm = _PROOF_START.match(text, after)
+        if pm:
+            pend = _find_end(text, "proof", pm.end())
+            if pend is not None:
+                proof_raw = text[pm.end():pend]
+                proof = clean_text(expand_macros(proof_raw, expand or {}))[:MAX_PROOF_CHARS] or None
         if statement:
+            own = [lab.strip() for lab in _LABEL.findall(body)]
+            refs = [r for r in _keys(_REF, body + "\n" + proof_raw) if r not in own]
             units.append(LatexUnit(kind=kind, env=env, statement=statement, label=label, title=title or None,
                                    section=_section_at(sections, m.start()),
-                                   line=text.count("\n", 0, m.start()) + 1, file=file))
+                                   line=text.count("\n", 0, m.start()) + 1, file=file, labels=own, refs=refs,
+                                   cites=_keys(_CITE, body + "\n" + proof_raw), proof=proof))
         pos = end
     return units
 
@@ -359,7 +419,12 @@ def parse(text: str, read: Callable[[str], str | None] | None = None, file: str 
     defs = macros(text)
     title, authors = document_metadata(text)
     units = extract_units(text, envs, file=file, expand=defs)
-    return LatexDocument(title=title, authors=authors, units=units, environments=envs, macros=defs)
+    bib_text = text
+    if "\\bibitem" not in text and read is not None and file:
+        bbl = read(Path(file).with_suffix(".bbl").name)  # bibtex output shipped with arXiv sources
+        bib_text = bbl or ""
+    return LatexDocument(title=title, authors=authors, units=units, environments=envs, macros=defs,
+                         bibliography=bibliography(bib_text))
 
 
 def find_main_file(root: Path) -> Path | None:

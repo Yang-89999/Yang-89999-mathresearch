@@ -149,6 +149,23 @@ IACR ePrint only publishes PDFs, so those go through `pypdf`
 starting with "Theorem 3.1.". Downloads are kept under
 `~/research/sources/<service>/<id>/` so anchors can be reopened.
 
+There are no embeddings and no fixed-size chunks: a unit is a whole
+definition, theorem, lemma or algorithm, and retrieval follows the paper's
+own logic. Ingestion records, for every unit, the labels it carries, the
+units it refers to with `\ref`/`\eqref`/`\cref` (resolved into
+`depends_on`), the works it `\cite`s and the proof that follows it, plus
+the paper's bibliography (from `thebibliography` or the `.bbl` shipped with
+arXiv sources) with any arXiv, ePrint or DOI ids. The `follow` tool walks
+that graph: what a unit uses, what in the paper uses it, which cited works
+are already ingested and which to ingest next, and the proof on request.
+
+```bash
+mathresearch --dir ~/research units follow unit_... --proof
+mathresearch --dir ~/research ingest relink     # once, for LaTeX sources ingested before links were kept
+```
+
+PDF text has no labels, so units from PDFs carry no links.
+
 Workers reach the same code through the `search_literature`,
 `ingest_source` and `list_sources` tools; a `learn` question is expected to
 end with the needed material indexed and a finding per source.
