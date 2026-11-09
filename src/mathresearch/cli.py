@@ -202,6 +202,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     s = pricing.spend(conn)
     print(f"\n{len(outcomes)} cycles, {failed} failed, ${cost:.3f} this invocation "
           f"(${s['usd_today']:.2f} today, ${s['usd_total']:.2f} in total)")
+    from .worker import REFUSED
+    refused = sum(1 for o in outcomes if o.error and o.error.startswith(REFUSED))
+    if refused:
+        print(f"{refused} of the failures were refusals by the provider's content filter (cryptanalysis can trip "
+              "it). Those questions stay on the agenda at lower priority. OpenAI offers trusted access for "
+              "security research: platform.openai.com/settings/organization/status-and-access")
     return 1 if failed and failed == len(outcomes) else 0
 
 

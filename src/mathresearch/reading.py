@@ -113,8 +113,17 @@ def read_source(conn: sqlite3.Connection, source_id: str, level: str, section: s
     if src is None:
         return f"No source with id {source_id}. Use list_sources or ingest_source."
     secs = outline(conn, source_id)
+    twin = None
+    if src.get("format") == "html":
+        from .ingest import full_text_twin
+        twin = full_text_twin(conn, src)
+        if twin is not None and level != "card":
+            return (f"{source_id} holds only the abstract; the full text of this paper is {twin['id']} "
+                    f"({twin.get('format')}). Read that one.")
     if level == "card":
         text = card_text(conn, src)
+        if twin is not None:
+            text += f"\nfull text: {twin['id']} holds the full text of this paper; read its outline there."
         if secs:
             text += "\nsections: " + "; ".join(f"{s['section']} ({len(s['units'])})" for s in secs[:30])
         return text
