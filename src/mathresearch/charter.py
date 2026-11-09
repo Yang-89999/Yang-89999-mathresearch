@@ -21,12 +21,70 @@ class CharterError(ValueError):
     pass
 
 
+# What each target flag means, as workers read it. The charter may replace any of these texts.
+TARGET_FLAGS = ("average_case", "efficient_verification", "wants_trapdoor", "wants_group_action",
+                "wants_homomorphism", "finite_field_formulation")
+
+TARGET_TITLES = {
+    "average_case": "Average-case hardness",
+    "efficient_verification": "Efficient verification",
+    "wants_trapdoor": "A trapdoor",
+    "wants_group_action": "A group action",
+    "wants_homomorphism": "Homomorphic structure",
+    "finite_field_formulation": "A finite formulation",
+}
+
+TARGET_DESCRIPTIONS = {
+    "average_case": (
+        "There is an efficient randomized sampler of instances (with a planted solution where the problem needs "
+        "one) such that every efficient classical or quantum algorithm solves a sampled instance with only "
+        "negligible probability. Keys are chosen at random, so worst-case hardness (NP-hardness) is not evidence. "
+        "State the distribution exactly (field size, number of variables, how secrets are drawn), give a "
+        "worst-case to average-case reduction if one exists (as for LWE and SIS), and otherwise attack random "
+        "instances in the lab across growing sizes."),
+    "efficient_verification": (
+        "Given an instance and a claimed solution, correctness can be checked in time polynomial in the instance "
+        "size (the search problem is in NP). Signatures and identification schemes need this, and the lab scores "
+        "attacks by it. For a decision or indistinguishability problem, say how a distinguisher's advantage is "
+        "measured instead."),
+    "wants_trapdoor": (
+        "Key generation outputs a public instance and a secret trapdoor: with the trapdoor, inversion is efficient "
+        "for (almost) every image; without it, the public instance should be as hard as a random instance of the "
+        "problem. Public-key encryption and hash-and-sign signatures need this. Examples: the hidden central map "
+        "of UOV or HFE behind affine changes of variables, a short basis for an LWE/SIS lattice, the Goppa code "
+        "hidden in McEliece. The usual failure is a trapdoor that leaves visible structure in the public key (a "
+        "rank defect, an invariant subspace, a linear relation): Patarin's break of Matsumoto-Imai, MinRank attacks "
+        "on HFE and Kipnis-Shamir on balanced Oil and Vinegar all exploit exactly that, so say why the public key "
+        "looks generic and test it."),
+    "wants_group_action": (
+        "A group G acts on a set X, g.x is efficient to compute, and given x and g.x it is hard to find g "
+        "(vectorization); ideally, given x, g.x and h.x it is also hard to find gh.x (parallelization, the analogue "
+        "of computational Diffie-Hellman). A commutative action gives non-interactive key exchange, as CSIDH does; "
+        "non-abelian actions (tensor isomorphism, code equivalence, isomorphism of polynomials) give signatures "
+        "through sigma protocols and Fiat-Shamir. For an abelian group, Kuperberg's quantum algorithm finds g in "
+        "subexponential time, so name the group, say whether it is abelian, and size parameters accordingly."),
+    "wants_homomorphism": (
+        "The hard map respects an algebraic operation, f(x + y) = f(x) * f(y), as homomorphic encryption needs. "
+        "Such structure is also a frequent source of attacks."),
+    "finite_field_formulation": (
+        "Instances are finite objects (over a finite field F_q or another finite structure) with explicit size "
+        "parameters, so the lab can sample instances and run exact attacks (Groebner bases, linear algebra, "
+        "exhaustive search). A problem over the reals or the complex numbers needs a discretisation first."),
+}
+
+DEFAULT_QUANTUM_CHECK = (
+    "Shor's algorithm solves the hidden subgroup problem over finite abelian groups, which breaks factoring, "
+    "discrete logarithms and anything that hides a period. Explain why the candidate does not reduce to an abelian "
+    "hidden subgroup problem; if it reduces to a dihedral one, Kuperberg's subexponential algorithm applies.")
+
+
 @dataclass
 class TargetProperties:
     """What a useful post-quantum hardness assumption should offer.
 
     One-wayness alone is not the goal: one-way functions already give
     post-quantum signatures. The charter names the extra structure wanted.
+    Each flag is rendered with its full description (TARGET_DESCRIPTIONS), which the charter may replace.
     """
 
     average_case: bool = True
@@ -35,7 +93,54 @@ class TargetProperties:
     wants_group_action: bool = True
     wants_homomorphism: bool = False
     finite_field_formulation: bool = True
-    quantum_check: str = "reject problems whose instances hide an abelian group structure (period, hidden subgroup)"
+    quantum_check: str = DEFAULT_QUANTUM_CHECK
+    descriptions: dict[str, str] = field(default_factory=dict)  # operator's replacements, by flag
+
+    @classmethod
+    def from_dict(cls, data) -> "TargetProperties":
+        """Each flag is true/false, or a mapping {wanted: true/false, description: "..."}."""
+        if not data:
+            return cls()
+        if not isinstance(data, dict):
+            raise CharterError("charter.target must be a mapping")
+        unknown = set(data) - set(TARGET_FLAGS) - {"quantum_check"}
+        if unknown:
+            raise CharterError(f"unknown target properties {sorted(unknown)}; allowed: {list(TARGET_FLAGS)} "
+                               f"and quantum_check")
+        kw: dict = {}
+        descriptions: dict[str, str] = {}
+        for name in TARGET_FLAGS:
+            if name not in data:
+                continue
+            value = data[name]
+            if isinstance(value, dict):
+                extra = set(value) - {"wanted", "description"}
+                if extra:
+                    raise CharterError(f"charter.target.{name}: unknown keys {sorted(extra)}; use wanted, description")
+                kw[name] = bool(value.get("wanted", True))
+                if value.get("description"):
+                    descriptions[name] = " ".join(str(value["description"]).split())
+            elif isinstance(value, bool):
+                kw[name] = value
+            else:
+                raise CharterError(f"charter.target.{name} must be true, false or a mapping with wanted/description")
+        if data.get("quantum_check"):
+            kw["quantum_check"] = " ".join(str(data["quantum_check"]).split())
+        return cls(**kw, descriptions=descriptions)
+
+    def description(self, name: str) -> str:
+        return self.descriptions.get(name) or TARGET_DESCRIPTIONS[name]
+
+    def to_prompt_lines(self) -> list[str]:
+        labels = {"average_case": "required", "efficient_verification": "required",
+                  "finite_field_formulation": "preferred"}
+        wanted, other = [], []
+        for name in TARGET_FLAGS:
+            on = getattr(self, name)
+            level = labels.get(name, "wanted") if on else "not required"
+            line = f"- {TARGET_TITLES[name]} ({level})"
+            (wanted if on else other).append(line + f": {self.description(name)}" if on else line + ".")
+        return wanted + other + [f"- Quantum check (always): {self.quantum_check}"]
 
 
 @dataclass
@@ -81,7 +186,7 @@ class Charter:
                 raise CharterError(f"charter is missing required key: {key}")
         if not isinstance(data["domains"], list) or not data["domains"]:
             raise CharterError("charter.domains must be a non-empty list")
-        target = TargetProperties(**(data.get("target") or {}))
+        target = TargetProperties.from_dict(data.get("target"))
         lanes = dict(data.get("lanes") or {"harvest": 0.6, "deepen": 0.25, "open": 0.15})
         unknown = set(lanes) - set(LANES)
         if unknown:
@@ -117,27 +222,13 @@ class Charter:
 
     def to_prompt(self) -> str:
         """Render the charter as the stable prefix of every worker prompt."""
-        t = self.target
-        wants = [
-            name
-            for flag, name in (
-                (t.wants_trapdoor, "a trapdoor (for encryption)"),
-                (t.wants_group_action, "a group action or similar structure (for key exchange)"),
-                (t.wants_homomorphism, "homomorphic structure"),
-            )
-            if flag
-        ]
         lines = [
             "# Research charter",
             "",
             self.objective,
             "",
             "## Properties a candidate problem must offer",
-            f"- Hardness on average over an efficiently samplable distribution: {'required' if t.average_case else 'not required'}",
-            f"- Efficient verification of a solution: {'required' if t.efficient_verification else 'not required'}",
-            f"- Extra structure wanted: {', '.join(wants) if wants else 'none specified'}",
-            f"- Finite-field or finite-structure formulation: {'preferred' if t.finite_field_formulation else 'not required'}",
-            f"- Quantum check: {t.quantum_check}",
+            *self.target.to_prompt_lines(),
             "",
             "## Starting domains",
         ]
@@ -226,14 +317,21 @@ domains:
   - category theory and higher algebra (categorical invariants, moduli, derived structures)
   - combinatorics and discrete mathematics (graphs, codes, discrete optimization, counting)
 
-# What a candidate problem should offer. Each flag becomes a line of every
-# worker prompt; set one to false if your goal does not need it.
+# What a candidate problem should offer. Workers never see these short names:
+# each flag that is true becomes a full definition in every worker prompt
+# (what it means precisely, why cryptography needs it, examples, the usual way
+# it fails). Run `mathresearch charter show` to read exactly what they see.
 #   average_case: hard on random instances (crypto samples keys at random)
 #   efficient_verification: a proposed solution can be checked quickly
 #   wants_trapdoor: a secret makes inversion easy (public-key encryption, signatures)
 #   wants_group_action: a group acting on a set (key exchange, as in isogenies)
 #   wants_homomorphism: structure preserved under operations (not needed at first)
 #   finite_field_formulation: instances live over finite fields or finite structures
+# To use your own definition, write a flag as a mapping, for example:
+#   wants_trapdoor:
+#     wanted: true
+#     description: >
+#       Your own wording of what the trapdoor must achieve.
 target:
   average_case: true
   efficient_verification: true
