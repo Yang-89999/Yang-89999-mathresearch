@@ -39,7 +39,9 @@ Rules:
    for every computational claim, run_attack to measure how standard attacks scale against a problem family,
    and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence. Scripts run in
    their own experiment directory and may write only there: never try to change the system's own code, the
-   lab or any file elsewhere (it is blocked). A new problem family or attack belongs in the write-back (a
+   lab or any file elsewhere (it is blocked). A script may start helper Python scripts with
+   subprocess.run([sys.executable, "helper.py"]) (the same limit applies to them) and the math programs, but
+   no other programs, no shell and no pip install: numpy and sympy are installed. A new problem family or attack belongs in the write-back (a
    candidate problem, submit_attack), and the operator decides what goes into the lab.
 3. Check the catalog. Before proposing a candidate problem, list the known problems and attacks and say which
    known problem it most resembles or reduces to. Disguised versions of MQ, MinRank, isomorphism of

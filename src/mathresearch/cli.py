@@ -305,6 +305,10 @@ def cmd_library_fetch(args: argparse.Namespace) -> int:
     res = library.fetch(conn, ws, topic=args.topic, seed=seed, delay=args.delay, downloads=downloads)
     print(f"\n{len(res['ingested'])} ingested, {len(res['completed'])} completed with full text, "
           f"{len(res['already'])} already present, {len(res['failed'])} failed")
+    if res.get("requested"):
+        print(f"{len(res['requested'])} papers the agents asked for now have a record: " + ", ".join(res["requested"]))
+    if res.get("unmatched"):
+        print(f"{len(res['unmatched'])} recent PDFs in Downloads matched no paper (listed above)")
     if res["waiting"]:
         print(f"{len(res['waiting'])} textbooks still wait for a file under {ws / library.LIBRARY_DIR}/: "
               + ", ".join(res["waiting"]))

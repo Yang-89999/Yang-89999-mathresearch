@@ -187,3 +187,64 @@ def test_search_units_puts_textbooks_first(tmp_path):
     assert text.startswith("No knowledge units match in the textbooks")
     listing, _ = registry.execute("list_sources", {}, ctx)
     assert "textbook: Ideals" in listing and "paper: A paper" in listing
+
+
+def test_fetch_records_requested_papers_and_matches_downloads_by_title(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "r.db")
+    monkeypatch.setattr(ingest.ax, "polite_sleep", lambda s: None)
+    monkeypatch.setattr(ingest, "pdf_to_text", lambda p: "Theorem 1. The full text.")
+    titles = {"2022/1528": "Graph-Theoretic Algorithms for the Alternating Trilinear Form Equivalence Problem",
+              "2024/364": "Algebraic Algorithm for the Alternating Trilinear Form Equivalence Problem"}
+
+    class Res:
+        def __init__(self, sid):
+            self.source_id = sid
+
+        def summary(self):
+            return f"ingested {self.source_id}"
+
+    def fake_reference(conn_, ref, workspace, **kw):
+        if ref not in titles:
+            raise AssertionError(ref)
+        return Res(_abstract_only(conn_, ref, titles[ref]))
+
+    monkeypatch.setattr(ingest, "ingest_reference", fake_reference)
+    q = store.get(conn, "questions", store.insert(conn, "questions", kind="learn", lane="harvest", title="Q"))
+    for ref, why in [("2022/1528", "graph walks"), ("2024/364", "Groebner attack"), (None, "weights")]:
+        wanted.request(conn, f"Some citation {ref}", why, reference=ref, question_id=q["id"])
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    pages = {  # named after the page title by the browser, or renamed by hand (with a typo)
+        "Graph-Theoretic Algorithms for the Alternating Trilinear Form E.pdf":
+            "Graph-Theoretic Algorithms for the Alternating\nTrilinear Form Equivalence Problem\nWard Beullens\n"
+            "Abstract. We give an algebraic algorithm ...",
+        "Algebriac Algorithm for the Altering Trilinear Form.pdf":
+            "Algebraic Algorithm for the Alternating Trilinear Form Equivalence Problem\nLars Ran",
+        "MAYO.pdf": "MAYO Specification Document",
+    }
+    for name in pages:
+        (downloads / name).write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(library, "_first_page", lambda p: pages.get(p.name, ""))
+    lines = []
+    res = library.fetch(conn, tmp_path, report=lines.append, downloads=downloads, fetch_fn=lambda u: EMPTY)
+    assert sorted(res["requested"]) == ["2022/1528", "2024/364"]
+    for ref in titles:
+        src = ingest.find_source(conn, "eprint", ref)
+        assert src["format"] == "pdf", (ref, lines)
+    assert [r["citation"] for r in wanted.open_requests(conn)] == ["Some citation None"]
+    assert res["unmatched"] == [str(downloads / "MAYO.pdf")]
+    assert any("not matched to any paper" in l and "MAYO.pdf" in l for l in lines)
+
+
+def test_title_match_needs_the_whole_title_at_the_top():
+    algebraic = "Algebraic Algorithm for the Alternating Trilinear Form Equivalence Problem"
+    graph_page = ("Graph-Theoretic Algorithms for the Alternating Trilinear Form Equivalence Problem\n"
+                  "Abstract. Unlike the algebraic algorithm for the alternating trilinear form equivalence problem")
+    graph = graph_page.splitlines()[0]
+    assert library._title_at_top(algebraic, graph_page)                          # alone, the quote fools it
+    assert not library._title_at_top(algebraic, graph_page, rivals=[graph, algebraic])
+    assert library._title_at_top(graph, graph_page, rivals=[graph, algebraic])
+    assert not library._title_at_top(algebraic, "x" * 500 + algebraic)           # not at the top
+    assert library._title_at_top(algebraic, "Algebraic Algoﬁrithm".replace("ﬁ", "") +
+                                 " for the Alternating Trilinear\nForm Equivalence Problem")
+    assert library._title_at_top("Practical Signatures from Trilinear Forms", "PracticalSignaturesfrom Trilinear Forms")

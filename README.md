@@ -74,7 +74,10 @@ conversation is not research memory; only the write-back persists.
 Scripts the workers run (`run_script`, submitted attacks) may write only in their own experiment
 directory (`~/research/experiments/<run id>/`) and the temp directory. A Python audit hook prepended to
 every script blocks writes elsewhere and blocks starting programs other than the math tools (msolve,
-Singular, M2, Magma, GP, GAP, Maxima, Sage). On macOS the operating system's sandbox (`sandbox-exec`)
+Singular, M2, Magma, GP, GAP, Maxima, Sage) and Python itself. A Python helper started with
+`subprocess.run([sys.executable, "helper.py"])` runs under the same guard: it is installed through a
+`sitecustomize` module on `PYTHONPATH` that scripts cannot change, and flags that would skip it (`-I`, `-E`,
+`-S`), a changed `PYTHONPATH` and `pip install` are refused. NumPy and SymPy are installed with the package. On macOS the operating system's sandbox (`sandbox-exec`)
 enforces the same write limit, including for programs Sage starts. This stops a worker from editing the
 system's own code, which happened once before the guard existed. `--provider fake`
 exists for offline tests.
@@ -245,11 +248,13 @@ why they need it when it would change a decision. You decide what to download:
 ```bash
 mathresearch --dir ~/research library wanted     # what the agents asked for, how often, and why
 mathresearch --dir ~/research library open       # opens the PDF links of abstract-only papers in your browser
-mathresearch --dir ~/research library fetch      # attaches PDFs found in ~/Downloads (matched by ePrint number,
-                                                 # checked against the title) or under library/
+mathresearch --dir ~/research library fetch      # attaches PDFs found in ~/Downloads or under library/
 mathresearch --dir ~/research library dismiss want_...   # drop a request you will not fulfil
 ```
 
+A download is matched by its ePrint number in the file name, or, whatever the file is called, by the
+paper's full title at the top of its first page. A requested ePrint paper the knowledge base has no record of
+yet gets one from its ePrint page first. Recent PDFs in Downloads that match nothing are listed at the end.
 Attaching keeps the paper's id, seed read and links, and closes its request. For a paper outside the
 list, `ingest file paper.pdf --eprint 2022/975` does the same. PDFs need the optional parser:
 `pip install -e ".[pdf]"`. `status` counts abstract-only papers and open requests.
