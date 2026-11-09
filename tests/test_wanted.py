@@ -103,7 +103,7 @@ def test_fetch_picks_up_browser_downloads(tmp_path, monkeypatch):
     downloads = tmp_path / "Downloads"
     downloads.mkdir()
     for name in pages:
-        (downloads / name).write_bytes(b"%PDF-1.4")
+        (downloads / name).write_bytes(b"%PDF-1.4 " + name.encode())
     peikert = _abstract_only(conn, "2015/939", "A Decade of Lattice Cryptography")
     sidh = _abstract_only(conn, "2022/975", "An efficient key recovery attack on SIDH")
     rainbow = _abstract_only(conn, "2022/214", "Breaking Rainbow Takes a Weekend on a Laptop")
@@ -223,7 +223,7 @@ def test_fetch_records_requested_papers_and_matches_downloads_by_title(tmp_path,
         "MAYO.pdf": "MAYO Specification Document",
     }
     for name in pages:
-        (downloads / name).write_bytes(b"%PDF-1.4")
+        (downloads / name).write_bytes(b"%PDF-1.4 " + name.encode())
     monkeypatch.setattr(library, "_first_page", lambda p: pages.get(p.name, ""))
     lines = []
     res = library.fetch(conn, tmp_path, report=lines.append, downloads=downloads, fetch_fn=lambda u: EMPTY)
@@ -234,6 +234,14 @@ def test_fetch_records_requested_papers_and_matches_downloads_by_title(tmp_path,
     assert [r["citation"] for r in wanted.open_requests(conn)] == ["Some citation None"]
     assert res["unmatched"] == [str(downloads / "MAYO.pdf")]
     assert any("not matched to any paper" in l and "MAYO.pdf" in l for l in lines)
+    # the next fetch does not list the papers it already picked up (their copies are in the library)
+    hand_placed = downloads / "Ideals Varieties and Algorithms.pdf"
+    hand_placed.write_bytes(b"%PDF-1.4 a textbook")
+    book = tmp_path / "library" / "cox_little_oshea_iva.pdf"
+    book.write_bytes(hand_placed.read_bytes())
+    store.insert(conn, "sources", kind="book", title="Ideals, Varieties, and Algorithms", path=str(book), format="pdf")
+    res = library.fetch(conn, tmp_path, report=lines.append, downloads=downloads, fetch_fn=lambda u: EMPTY)
+    assert res["unmatched"] == [str(downloads / "MAYO.pdf")]
 
 
 def test_title_match_needs_the_whole_title_at_the_top():
