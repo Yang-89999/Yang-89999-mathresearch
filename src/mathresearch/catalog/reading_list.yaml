@@ -1,0 +1,504 @@
+# The reading list: references the system fetches for itself (`mathresearch library fetch`) and the
+# standard textbooks the operator supplies as files. Every open-access id below was checked against the
+# arXiv / IACR ePrint record it names.
+#
+# access: arxiv | eprint (fetched automatically) | file (the operator places the PDF or LaTeX at
+#         <workspace>/library/<id>.pdf|.tex|/ and `library fetch` ingests it; `url` says where a legal copy is)
+# topics: computational_algebra, computational_algebraic_geometry, representation_theory, invariant_theory,
+#         number_theory, multivariate, lattices, codes, isogenies, group_actions, quantum, complexity, topology
+# domains: tags written on the ingested units (match the charter's domain names)
+
+# ---- textbooks and lecture notes (operator supplies the file unless free online) ----------------------
+
+- id: cox_little_oshea_iva
+  title: "Ideals, Varieties, and Algorithms"
+  authors: [David Cox, John Little, Donal O'Shea]
+  year: 2015
+  kind: book
+  access: file
+  topics: [computational_algebraic_geometry, computational_algebra]
+  domains: [computational algebraic geometry, commutative algebra]
+  why: "Groebner bases, elimination, the Nullstellensatz and the algebra-geometry dictionary; every polynomial-system candidate is judged with its tools."
+
+- id: cox_little_oshea_uag
+  title: "Using Algebraic Geometry"
+  authors: [David Cox, John Little, Donal O'Shea]
+  year: 2005
+  kind: book
+  access: file
+  topics: [computational_algebraic_geometry]
+  domains: [computational algebraic geometry]
+  why: "Solving polynomial systems (resultants, eigenvalue methods), local rings, modules, free resolutions, and algebraic coding theory in one place."
+
+- id: kreuzer_robbiano_cca
+  title: "Computational Commutative Algebra 1"
+  authors: [Martin Kreuzer, Lorenzo Robbiano]
+  year: 2000
+  kind: book
+  access: file
+  topics: [computational_algebra]
+  domains: [commutative algebra]
+  why: "Rigorous Groebner theory for modules, syzygies and Hilbert functions; the source for complexity-of-elimination arguments."
+
+- id: eisenbud_cavtag
+  title: "Commutative Algebra with a View Toward Algebraic Geometry"
+  authors: [David Eisenbud]
+  year: 1995
+  kind: book
+  access: file
+  topics: [computational_algebra, computational_algebraic_geometry]
+  domains: [commutative algebra]
+  why: "Free resolutions, Koszul complexes, regularity and determinantal ideals, the structures behind MinRank and degree-of-regularity bounds."
+
+- id: sturmfels_ait
+  title: "Algorithms in Invariant Theory"
+  authors: [Bernd Sturmfels]
+  year: 2008
+  kind: book
+  access: file
+  topics: [invariant_theory, representation_theory]
+  domains: [computational representation theory, computational algebraic geometry]
+  why: "Computing invariant rings and separating orbits; orbit and equivalence problems are the main source of group-action candidates."
+
+- id: derksen_kemper_cit
+  title: "Computational Invariant Theory"
+  authors: [Harm Derksen, Gregor Kemper]
+  year: 2015
+  kind: book
+  access: file
+  topics: [invariant_theory]
+  domains: [computational representation theory]
+  why: "Algorithms for invariants of reductive and finite groups, degree bounds and the null cone; tells which orbit problems have cheap invariants."
+
+- id: fulton_harris_rt
+  title: "Representation Theory: A First Course"
+  authors: [William Fulton, Joe Harris]
+  year: 1991
+  kind: book
+  access: file
+  topics: [representation_theory]
+  domains: [computational representation theory]
+  why: "The standard first course; the structure of representations of finite and Lie groups that candidates over finite fields must respect."
+
+- id: serre_lrfg
+  title: "Linear Representations of Finite Groups"
+  authors: [Jean-Pierre Serre]
+  year: 1977
+  kind: book
+  access: file
+  topics: [representation_theory]
+  domains: [computational representation theory]
+  why: "Characters and induced representations, compact and exact; the finite-group half of the quantum hidden-subgroup picture."
+
+- id: lidl_niederreiter_ff
+  title: "Finite Fields"
+  authors: [Rudolf Lidl, Harald Niederreiter]
+  year: 1997
+  kind: book
+  access: file
+  topics: [number_theory, computational_algebra]
+  domains: [computational number theory]
+  why: "Polynomials over finite fields, linearized polynomials, permutation polynomials and character sums; every finite-field candidate leans on it."
+
+- id: shoup_cintna
+  title: "A Computational Introduction to Number Theory and Algebra"
+  authors: [Victor Shoup]
+  year: 2008
+  kind: book
+  access: file
+  url: https://shoup.net/ntb/
+  topics: [number_theory, computational_algebra]
+  domains: [computational number theory]
+  why: "Free from the author's site. Algorithms and their costs for integers, polynomials and finite fields, with probabilistic analysis."
+
+- id: vzgathen_gerhard_mca
+  title: "Modern Computer Algebra"
+  authors: [Joachim von zur Gathen, Juergen Gerhard]
+  year: 2013
+  kind: book
+  access: file
+  topics: [computational_algebra]
+  domains: [computational algebraic geometry, computational number theory]
+  why: "Costs of the basic operations (multiplication, gcd, factoring, linear algebra) that bound every forward map and every attack."
+
+- id: ding_petzoldt_schmidt_mpkc
+  title: "Multivariate Public Key Cryptosystems"
+  authors: [Jintai Ding, Albrecht Petzoldt, Dieter Schmidt]
+  year: 2020
+  kind: book
+  access: file
+  topics: [multivariate]
+  domains: [multivariate polynomials]
+  why: "The multivariate schemes and the attacks that broke them, in one book; the catalog of weakness patterns for this domain."
+
+- id: bernstein_buchmann_dahmen_pqc
+  title: "Post-Quantum Cryptography"
+  authors: [Daniel Bernstein, Johannes Buchmann, Erik Dahmen]
+  year: 2009
+  kind: book
+  access: file
+  topics: [lattices, codes, multivariate]
+  domains: [multivariate polynomials, combinatorics and discrete mathematics]
+  why: "Survey chapters on hash-based, code-based, lattice-based and multivariate cryptography as the field stood before NIST."
+
+- id: micciancio_goldwasser_clp
+  title: "Complexity of Lattice Problems: A Cryptographic Perspective"
+  authors: [Daniele Micciancio, Shafi Goldwasser]
+  year: 2002
+  kind: book
+  access: file
+  topics: [lattices, complexity]
+  domains: [computational number theory]
+  why: "Reductions and hardness of lattice problems; the model for how to argue worst-case to average-case."
+
+- id: macwilliams_sloane_ecc
+  title: "The Theory of Error-Correcting Codes"
+  authors: [F. J. MacWilliams, N. J. A. Sloane]
+  year: 1977
+  kind: book
+  access: file
+  topics: [codes]
+  domains: [combinatorics and discrete mathematics]
+  why: "Weight enumerators, duality and the classical code families whose invariants decide code-equivalence candidates."
+
+- id: edelsbrunner_harer_ct
+  title: "Computational Topology: An Introduction"
+  authors: [Herbert Edelsbrunner, John Harer]
+  year: 2010
+  kind: book
+  access: file
+  topics: [topology]
+  domains: [computational topology and geometry]
+  why: "Homology computation, persistence and reconstruction; the computable invariants of the topology domain."
+
+- id: hatcher_at
+  title: "Algebraic Topology"
+  authors: [Allen Hatcher]
+  year: 2002
+  kind: book
+  access: file
+  url: https://pi.math.cornell.edu/~hatcher/AT/ATpage.html
+  topics: [topology]
+  domains: [computational topology and geometry]
+  why: "Free from the author's site. Fundamental groups, homology and cohomology; the background for reconstruction and classification problems."
+
+- id: etingof_rt_notes
+  title: "Introduction to representation theory"
+  authors: [Pavel Etingof, Oleg Golberg, Sebastian Hensel, Tiankai Liu, Alex Schwendner, Dmitry Vaintrob, Elena Yudovina]
+  year: 2009
+  kind: notes
+  access: arxiv
+  ref: "arXiv:0901.0827"
+  topics: [representation_theory]
+  domains: [computational representation theory]
+  why: "A complete course in LaTeX, so every theorem arrives as an exact unit: quivers, finite groups, Schur-Weyl duality."
+
+# ---- surveys and foundational papers (fetched automatically) ---------------------------------------
+
+- id: peikert_decade
+  title: "A Decade of Lattice Cryptography"
+  authors: [Chris Peikert]
+  year: 2015
+  kind: survey
+  access: eprint
+  ref: "2015/939"
+  topics: [lattices]
+  domains: [computational number theory]
+  why: "The reference survey of lattice assumptions, reductions and constructions."
+
+- id: childs_vandam_quantum
+  title: "Quantum algorithms for algebraic problems"
+  authors: [Andrew Childs, Wim van Dam]
+  year: 2008
+  kind: survey
+  access: arxiv
+  ref: "arXiv:0812.0380"
+  topics: [quantum, representation_theory]
+  domains: [computational representation theory, computational number theory]
+  why: "What quantum computers can do with hidden subgroups, hidden shifts and non-abelian groups; the charter's quantum check made precise."
+
+- id: grochow_qiao_tensor_iso
+  title: "Isomorphism problems for tensors, groups, and cubic forms: completeness and reductions"
+  authors: [Joshua Grochow, Youming Qiao]
+  year: 2019
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1907.00309"
+  topics: [group_actions, complexity, representation_theory]
+  domains: [computational representation theory, computational algebraic geometry]
+  why: "Tensor isomorphism as a complexity class and the reductions among isomorphism problems; tells which equivalence problems are the same problem."
+
+- id: ji_qiao_song_yun_tensors
+  title: "General Linear Group Action on Tensors: A Candidate for Post-Quantum Cryptography"
+  authors: [Zhengfeng Ji, Youming Qiao, Fang Song, Aaram Yun]
+  year: 2019
+  kind: paper
+  access: eprint
+  ref: "2019/687"
+  topics: [group_actions]
+  domains: [computational representation theory]
+  why: "How a classification problem from algebra was turned into a cryptographic group action, with the security arguments it needed."
+
+- id: tang_et_al_trilinear
+  title: "Practical Post-Quantum Signature Schemes from Isomorphism Problems of Trilinear Forms"
+  authors: [Gang Tang, Dung Hoang Duong, Antoine Joux, Thomas Plantard, Youming Qiao, Willy Susilo]
+  year: 2022
+  kind: paper
+  access: eprint
+  ref: "2022/267"
+  topics: [group_actions]
+  domains: [computational representation theory]
+  why: "Alternating trilinear forms as the hard instance; parameter choices and the attacks considered."
+
+- id: alamati_defeo_group_actions
+  title: "Cryptographic Group Actions and Applications"
+  authors: [Navid Alamati, Luca De Feo, Hart Montgomery, Sikhar Patranabis]
+  year: 2020
+  kind: paper
+  access: eprint
+  ref: "2020/1188"
+  topics: [group_actions]
+  domains: [computational representation theory, computational number theory]
+  why: "The abstract framework (effective group actions, the assumptions, what can be built); the template a group-action candidate must fit."
+
+- id: couveignes_hhs
+  title: "Hard Homogeneous Spaces"
+  authors: [Jean-Marc Couveignes]
+  year: 2006
+  kind: paper
+  access: eprint
+  ref: "2006/291"
+  topics: [group_actions, isogenies]
+  domains: [computational number theory]
+  why: "The origin of group-action cryptography, written before the schemes; a model of how to state a new assumption."
+
+- id: castryck_et_al_csidh
+  title: "CSIDH: An Efficient Post-Quantum Commutative Group Action"
+  authors: [Wouter Castryck, Tanja Lange, Chloe Martindale, Lorenz Panny, Joost Renes]
+  year: 2018
+  kind: paper
+  access: eprint
+  ref: "2018/383"
+  topics: [isogenies, group_actions]
+  domains: [computational number theory]
+  why: "A commutative group action in practice, and why commutativity costs a subexponential quantum attack."
+
+- id: castryck_decru_sidh
+  title: "An efficient key recovery attack on SIDH"
+  authors: [Wouter Castryck, Thomas Decru]
+  year: 2022
+  kind: paper
+  access: eprint
+  ref: "2022/975"
+  topics: [isogenies]
+  domains: [computational number theory]
+  why: "How auxiliary public data (torsion images) killed a problem thought hard for a decade; weakness pattern wp_auxiliary_public_data."
+
+- id: defeo_isogeny_math
+  title: "Mathematics of Isogeny Based Cryptography"
+  authors: [Luca De Feo]
+  year: 2017
+  kind: notes
+  access: arxiv
+  ref: "arXiv:1711.04062"
+  topics: [isogenies, number_theory]
+  domains: [computational number theory]
+  why: "Lecture notes in LaTeX on elliptic curves, isogenies and the problems built on them."
+
+- id: beullens_uov_rainbow
+  title: "Improved Cryptanalysis of UOV and Rainbow"
+  authors: [Ward Beullens]
+  year: 2020
+  kind: paper
+  access: eprint
+  ref: "2020/1343"
+  topics: [multivariate]
+  domains: [multivariate polynomials]
+  why: "The intersection and rectangular MinRank attacks; what structure in Oil-and-Vinegar maps an attacker can reach."
+
+- id: beullens_rainbow_weekend
+  title: "Breaking Rainbow Takes a Weekend on a Laptop"
+  authors: [Ward Beullens]
+  year: 2022
+  kind: paper
+  access: eprint
+  ref: "2022/214"
+  topics: [multivariate]
+  domains: [multivariate polynomials]
+  why: "A NIST finalist broken by a simple structural attack; the clearest recent case of a weakness pattern missed for years."
+
+- id: beullens_mayo
+  title: "MAYO: Practical Post-Quantum Signatures from Oil-and-Vinegar Maps"
+  authors: [Ward Beullens]
+  year: 2021
+  kind: paper
+  access: eprint
+  ref: "2021/1144"
+  topics: [multivariate]
+  domains: [multivariate polynomials]
+  why: "A repair of Oil and Vinegar that shrinks keys by whipping up the map; how to redesign around a known weakness."
+
+- id: bardet_faugere_salvy_f5
+  title: "On the Complexity of the F5 Groebner basis Algorithm"
+  authors: [Magali Bardet, Jean-Charles Faugere, Bruno Salvy]
+  year: 2013
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1312.1655"
+  topics: [computational_algebra, multivariate]
+  domains: [computational algebraic geometry, multivariate polynomials]
+  why: "The degree of regularity and the cost of Groebner bases for semi-regular systems; the yardstick every algebraic attack estimate uses."
+
+- id: faugere_safey_spaenlehauer_bilinear
+  title: "Groebner Bases of Bihomogeneous Ideals generated by Polynomials of Bidegree (1,1)"
+  authors: [Jean-Charles Faugere, Mohab Safey El Din, Pierre-Jean Spaenlehauer]
+  year: 2010
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1001.4004"
+  topics: [computational_algebra, multivariate]
+  domains: [computational algebraic geometry, multivariate polynomials]
+  why: "Bilinear systems fall faster than generic ones; the reason MinRank and many structural attacks are cheaper than they look."
+
+- id: bardet_et_al_minrank
+  title: "Improvements of Algebraic Attacks for solving the Rank Decoding and MinRank problems"
+  authors: [Magali Bardet, Maxime Bros, Daniel Cabarcas, Philippe Gaborit, Ray Perlner, Daniel Smith-Tone, Jean-Pierre Tillich, Javier Verbel]
+  year: 2020
+  kind: paper
+  access: arxiv
+  ref: "arXiv:2002.08322"
+  topics: [multivariate, codes]
+  domains: [multivariate polynomials, combinatorics and discrete mathematics]
+  why: "Support-minors modelling, the current best MinRank solver; the cost model for weakness pattern wp_low_rank_central_map."
+
+- id: bouillaguet_fouque_veber_ip
+  title: "Graph-Theoretic Algorithms for the Isomorphism of Polynomials Problem"
+  authors: [Charles Bouillaguet, Pierre-Alain Fouque, Amandine Veber]
+  year: 2012
+  kind: paper
+  access: eprint
+  ref: "2012/607"
+  topics: [multivariate, group_actions]
+  domains: [multivariate polynomials, computational algebraic geometry]
+  why: "Isomorphism of polynomials attacked through graphs built from the public maps; the archetype of a cheap orbit invariant."
+
+- id: ducas_vanwoerden_lip
+  title: "On the Lattice Isomorphism Problem, Quadratic Forms, Remarkable Lattices, and Cryptography"
+  authors: [Leo Ducas, Wessel van Woerden]
+  year: 2021
+  kind: paper
+  access: eprint
+  ref: "2021/1332"
+  topics: [lattices, group_actions]
+  domains: [computational number theory]
+  why: "A classical classification problem turned into an assumption, with the arithmetic invariants that must fail for it to be hard."
+
+- id: biasse_et_al_less
+  title: "LESS is More: Code-Based Signatures without Syndromes"
+  authors: [Jean-Francois Biasse, Giacomo Micheli, Edoardo Persichetti, Paolo Santini]
+  year: 2020
+  kind: paper
+  access: eprint
+  ref: "2020/594"
+  topics: [codes, group_actions]
+  domains: [combinatorics and discrete mathematics]
+  why: "Code equivalence as a group action for signatures; which equivalence notion (permutation, monomial, linear) stays hard."
+
+- id: beullens_not_enough_less
+  title: "Not enough LESS: An improved algorithm for solving Code Equivalence Problems over F_q"
+  authors: [Ward Beullens]
+  year: 2020
+  kind: paper
+  access: eprint
+  ref: "2020/801"
+  topics: [codes, group_actions]
+  domains: [combinatorics and discrete mathematics]
+  why: "Low-weight codewords and hull invariants cut the code-equivalence search; the invariants a code candidate must survive."
+
+- id: weger_et_al_code_survey
+  title: "A Survey on Code-Based Cryptography"
+  authors: [Violetta Weger, Niklas Gassner, Joachim Rosenthal]
+  year: 2022
+  kind: survey
+  access: arxiv
+  ref: "arXiv:2201.07119"
+  topics: [codes]
+  domains: [combinatorics and discrete mathematics]
+  why: "Decoding problems, the McEliece family, rank metric and the attacks, in LaTeX with exact statements."
+
+- id: babai_gi
+  title: "Graph Isomorphism in Quasipolynomial Time"
+  authors: [Laszlo Babai]
+  year: 2015
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1512.03547"
+  topics: [complexity, group_actions]
+  domains: [combinatorics and discrete mathematics, computational representation theory]
+  why: "Why graph isomorphism is a poor hardness assumption, and the group-theoretic machinery that reaches far beyond graphs."
+
+- id: derksen_makam_semi_invariants
+  title: "Polynomial degree bounds for matrix semi-invariants"
+  authors: [Harm Derksen, Visu Makam]
+  year: 2015
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1512.03393"
+  topics: [invariant_theory, complexity]
+  domains: [computational representation theory]
+  why: "Polynomial bounds for generating invariants of matrix tuples; when orbit closure questions become polynomial-time."
+
+- id: derksen_makam_orbit_closure
+  title: "Algorithms for orbit closure separation for invariants and semi-invariants of matrices"
+  authors: [Harm Derksen, Visu Makam]
+  year: 2018
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1801.02043"
+  topics: [invariant_theory, complexity]
+  domains: [computational representation theory]
+  why: "Deciding orbit closure intersection in polynomial time for matrix tuples; a warning for orbit-based candidates."
+
+- id: bgowz_null_cone
+  title: "Alternating minimization, scaling algorithms, and the null-cone problem from invariant theory"
+  authors: [Peter Buergisser, Ankit Garg, Rafael Oliveira, Michael Walter, Avi Wigderson]
+  year: 2017
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1711.08039"
+  topics: [invariant_theory, complexity]
+  domains: [computational representation theory]
+  why: "Analytic algorithms for null-cone membership; invariant-theoretic problems that looked hard and are not."
+
+- id: ggow_operator_scaling
+  title: "Operator scaling: theory and applications"
+  authors: [Ankit Garg, Leonid Gurvits, Rafael Oliveira, Avi Wigderson]
+  year: 2015
+  kind: paper
+  access: arxiv
+  ref: "arXiv:1511.03730"
+  topics: [invariant_theory, complexity]
+  domains: [computational representation theory]
+  why: "Polynomial identity testing for non-commutative rank through scaling; another algebraic problem solved by analysis."
+
+- id: landsberg_gct_intro
+  title: "Geometric Complexity Theory: an introduction for geometers"
+  authors: [J. M. Landsberg]
+  year: 2013
+  kind: survey
+  access: arxiv
+  ref: "arXiv:1305.7387"
+  topics: [complexity, computational_algebraic_geometry, representation_theory]
+  domains: [computational algebraic geometry, computational representation theory]
+  why: "Orbit closures of the determinant and permanent, tensor rank and border rank; algebraic geometry as a language for hardness."
+
+- id: mulmuley_gct
+  title: "On P vs. NP, Geometric Complexity Theory, and the Riemann Hypothesis"
+  authors: [Ketan Mulmuley]
+  year: 2009
+  kind: survey
+  access: arxiv
+  ref: "arXiv:0908.1936"
+  topics: [complexity, representation_theory]
+  domains: [computational representation theory, computational algebraic geometry]
+  why: "The GCT programme in overview; where representation theory meets lower bounds."

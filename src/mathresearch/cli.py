@@ -10,6 +10,7 @@
     mathresearch ingest fetch 2301.00001   download papers and split them into knowledge units
     mathresearch ingest file paper.tex     ingest a local LaTeX/PDF/text file
     mathresearch ingest seed SOURCE_ID     queue a seed read for a source already ingested
+    mathresearch library list|fetch        the reading list: open-access references fetched for you, textbooks you place
     mathresearch lessons list              lessons from experts' published work (after catalog load)
     mathresearch lessons ingest            fetch the papers behind the lessons and queue seed reads
     mathresearch units search 'Groebner'   search the knowledge base
@@ -230,6 +231,37 @@ def cmd_ingest_seed(args: argparse.Namespace) -> int:
             continue
         print(f"{sid}: seed read {reading.seed_reference(conn, sid)}")
     return status
+
+
+def cmd_library_list(args: argparse.Namespace) -> int:
+    from . import library
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    rows = library.status(conn, ws, topic=args.topic)
+    if not rows:
+        print(f"no entries for topic {args.topic!r}; topics: {', '.join(library.topics())}", file=sys.stderr)
+        return 1
+    for r in rows:
+        print(library.render_entry(r, state=r["state"], workspace=ws) + "\n")
+    waiting = [r for r in rows if r["state"] == "waiting for file"]
+    if waiting:
+        print(f"{len(waiting)} textbooks wait for a file under {ws / library.LIBRARY_DIR}/<id>.pdf; "
+              f"'library fetch' ingests whatever is there.")
+    return 0
+
+
+def cmd_library_fetch(args: argparse.Namespace) -> int:
+    from . import library
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    (ws / library.LIBRARY_DIR).mkdir(parents=True, exist_ok=True)
+    seed = not args.no_seed and _seed_policy(ws)
+    res = library.fetch(conn, ws, topic=args.topic, seed=seed, delay=args.delay)
+    print(f"\n{len(res['ingested'])} ingested, {len(res['already'])} already present, {len(res['failed'])} failed")
+    if res["waiting"]:
+        print(f"{len(res['waiting'])} textbooks still wait for a file under {ws / library.LIBRARY_DIR}/: "
+              + ", ".join(res["waiting"]))
+    return 1 if res["failed"] and not res["ingested"] else 0
 
 
 def cmd_lessons_list(args: argparse.Namespace) -> int:
@@ -512,6 +544,17 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("query")
     c.add_argument("--max", type=int, default=10)
     c.set_defaults(func=cmd_ingest_search)
+
+    s = sub.add_parser("library", help="the reading list: references fetched for you, textbooks you place")
+    lib = s.add_subparsers(dest="library_command", required=True)
+    c = lib.add_parser("list", help="show the reading list and what is ingested, waiting or to fetch")
+    c.add_argument("--topic", help="e.g. computational_algebra, representation_theory, group_actions")
+    c.set_defaults(func=cmd_library_list)
+    c = lib.add_parser("fetch", help="ingest the open-access entries and any textbook placed under library/")
+    c.add_argument("--topic")
+    c.add_argument("--delay", type=float, default=3.0)
+    c.add_argument("--no-seed", action="store_true", help="index only; do not queue seed reads")
+    c.set_defaults(func=cmd_library_fetch)
 
     s = sub.add_parser("lessons", help="lessons from PQC experts' published work")
     lsub = s.add_subparsers(dest="lessons_command", required=True)

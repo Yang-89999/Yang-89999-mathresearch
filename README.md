@@ -158,6 +158,28 @@ public data, and others), each with its signature in public data and a computati
 audited against the patterns that apply to their domains; `avoided` and `vulnerable` need an experiment
 id, otherwise the entry is recorded as `untested`, and a verified vulnerability is a negative finding.
 
+## The reading list
+
+`mathresearch library` holds a curated reading list (`catalog/reading_list.yaml`, 46 entries): the
+standard textbooks of the charter's domains (Cox-Little-O'Shea, Kreuzer-Robbiano, Eisenbud, Sturmfels,
+Derksen-Kemper, Fulton-Harris, Serre, Lidl-Niederreiter, Shoup, von zur Gathen-Gerhard, Ding-Petzoldt-
+Schmidt, MacWilliams-Sloane, Micciancio-Goldwasser, Edelsbrunner-Harer, Hatcher), and open-access surveys
+and foundational papers on arXiv and IACR ePrint: lattice and code-based cryptography surveys, quantum
+algorithms for algebraic problems, tensor and polynomial isomorphism, cryptographic group actions, CSIDH
+and the SIDH break, the UOV/Rainbow attacks and MAYO, Groebner-basis complexity, MinRank solvers, code
+and lattice equivalence, invariant theory and orbit-closure algorithms, geometric complexity theory.
+Every open-access id was checked against the record it names.
+
+```bash
+mathresearch --dir ~/research library list --topic representation_theory
+mathresearch --dir ~/research library fetch          # arXiv and ePrint entries, plus any textbook you placed
+```
+
+Textbooks are paywalled, so the system cannot download them: put your copy at
+`~/research/library/<id>.pdf` (or a `.tex` file or LaTeX directory named `<id>`) and the next
+`library fetch` ingests it; `library list` prints the exact path for each one. Everything the list
+brings in counts as an operator reference and gets a seed read.
+
 ## Lessons from the field
 
 `catalog load` also loads thirteen lessons drawn from the published work of Oded Regev, Chris Peikert,
@@ -270,6 +292,7 @@ thread alone picks questions, checks the caps and runs the reflection step.
 - [x] PR 7: cost accounting, spending caps, parallel workers
 - [x] PR 8: purpose-driven reading (seed reads, levelled reading, reading notes, question origins, weakness patterns)
 - [x] PR 9: lessons from experts' published work in every prompt, timely expert reviews of candidates
+- [x] PR 10: the reading list (textbooks the operator places, open-access papers fetched automatically)
 - [ ] More families (HFE, UOV, MinRank, syndrome decoding) and attacks (MinRank, msolve Gröbner)
 
 The design review and build plan live in the project's design document.
