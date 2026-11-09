@@ -46,6 +46,8 @@ class Charter:
     max_concurrent_runs: int = 3
     reflect_every_runs: int = 20
     notes: str = ""
+    hidden_attacks: list[str] = field(default_factory=list)   # lab attacks withheld from workers (retrodiction)
+    catalog_max_year: int | None = None                       # ignore catalog entries published after this year
 
     @classmethod
     def from_dict(cls, data: dict) -> "Charter":
@@ -76,6 +78,8 @@ class Charter:
             max_concurrent_runs=int(data.get("max_concurrent_runs", 3)),
             reflect_every_runs=int(data.get("reflect_every_runs", 20)),
             notes=str(data.get("notes", "")),
+            hidden_attacks=[str(a) for a in data.get("hidden_attacks", []) or []],
+            catalog_max_year=int(data["catalog_max_year"]) if data.get("catalog_max_year") else None,
         )
 
     @classmethod

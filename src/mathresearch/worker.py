@@ -40,7 +40,8 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
     run_id = store.insert(conn, "runs", question_id=question["id"], lane=lane, provider=provider.name,
                           model=model or provider.default_model, status="running")
     store.update(conn, "questions", question["id"], status="running")
-    ctx = registry.ToolContext(conn=conn, workspace=workspace, question=question, run_id=run_id)
+    ctx = registry.ToolContext(conn=conn, workspace=workspace, question=question, run_id=run_id,
+                               hidden_attacks=frozenset(charter.hidden_attacks))
     usage = Usage()
     messages = [Message(role="user", content=[TextBlock(user_prompt(conn, question))])]
     system = system_prompt(charter, lane)

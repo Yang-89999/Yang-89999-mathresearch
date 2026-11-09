@@ -1,0 +1,177 @@
+# Knowledge available before 1995 about the Matsumoto-Imai C* scheme and the
+# algebra around it. Used by the retrodiction scenario `patarin_1995`: the
+# system is handed this (and nothing published later) and asked to attack C*.
+# Patarin's 1995 observation is deliberately absent; the system must find it.
+
+sources:
+  - id: src_retro_mi88
+    kind: paper
+    title: "Public quadratic polynomial-tuples for efficient signature-verification and message-encryption"
+    authors: ["Tsutomu Matsumoto", "Hideki Imai"]
+    year: 1988
+    venue: "EUROCRYPT 1988, LNCS 330"
+    format: text
+    domains: ["multivariate polynomials", "finite fields"]
+  - id: src_retro_ln83
+    kind: book
+    title: "Finite Fields"
+    authors: ["Rudolf Lidl", "Harald Niederreiter"]
+    year: 1983
+    venue: "Encyclopedia of Mathematics and its Applications 20"
+    format: text
+    domains: ["finite fields"]
+  - id: src_retro_gj79
+    kind: book
+    title: "Computers and Intractability: A Guide to the Theory of NP-Completeness"
+    authors: ["Michael R. Garey", "David S. Johnson"]
+    year: 1979
+    format: text
+    domains: ["complexity"]
+  - id: src_retro_buch
+    kind: paper
+    title: "Groebner bases: an algorithmic method in polynomial ideal theory"
+    authors: ["Bruno Buchberger"]
+    year: 1985
+    venue: "Multidimensional Systems Theory (Reidel), chapter 6; thesis 1965"
+    format: text
+    domains: ["commutative algebra"]
+
+units:
+  - source_id: src_retro_mi88
+    kind: definition
+    label: "C* scheme"
+    title: "The Matsumoto-Imai public-key scheme C*"
+    statement: >
+      Let q = 2^m and K = GF(q^n), identified with GF(q)^n through a fixed GF(q)-basis
+      (phi: GF(q)^n -> K). Choose theta with gcd(1 + q^theta, q^n - 1) = 1 and let the central map be
+      F(u) = u^(1 + q^theta) on K. Choose two secret affine bijections S, T of GF(q)^n. The public key is
+      P = T o phi^{-1} o F o phi o S, published as n polynomials of degree at most 2 in n variables over GF(q).
+      The secret key is (S, T, theta) together with the field representation. Encryption of x is y = P(x);
+      the legitimate receiver inverts T, F and S in turn.
+    hypotheses: ["q is a power of 2", "gcd(1 + q^theta, q^n - 1) = 1"]
+    anchor: {"section": "2-3"}
+    domains: ["multivariate polynomials", "finite fields"]
+    computational_notes: >
+      Forward evaluation costs O(n^3) field operations over GF(q) (n quadratics in n variables).
+      Inversion with the secret key is a single exponentiation u = y^h in K plus two affine inversions.
+      Without the key the obvious route is to solve the quadratic system P(x) = y.
+  - source_id: src_retro_mi88
+    kind: theorem
+    label: "F bijective"
+    title: "The central map is a permutation of K"
+    statement: >
+      u -> u^(1 + q^theta) permutes K = GF(q^n) if and only if gcd(1 + q^theta, q^n - 1) = 1. In that case
+      its inverse is u = y^h where h is the inverse of 1 + q^theta modulo q^n - 1.
+    anchor: {"section": "3"}
+    domains: ["finite fields"]
+  - source_id: src_retro_mi88
+    kind: proposition
+    label: "gcd condition"
+    title: "When 1 + q^theta is coprime to q^n - 1"
+    statement: >
+      For q even, gcd(1 + q^theta, q^n - 1) = 1 holds exactly when n / gcd(n, theta) is odd. In particular
+      theta = 1 works for every odd n.
+    anchor: {"section": "3"}
+    domains: ["finite fields"]
+  - source_id: src_retro_mi88
+    kind: theorem
+    label: "P quadratic"
+    title: "The public polynomials have degree at most two"
+    statement: >
+      The Frobenius power u -> u^(q^theta) is GF(q)-linear on K, so F(u) = u * u^(q^theta) is the product of
+      two GF(q)-linear maps and every coordinate of phi^{-1} o F o phi is a quadratic form over GF(q).
+      Composing with the affine maps S and T preserves degree at most 2, hence the public key consists of
+      n quadratic polynomials in n variables.
+    anchor: {"section": "3"}
+    domains: ["multivariate polynomials", "finite fields"]
+  - source_id: src_retro_mi88
+    kind: remark
+    label: "security claim"
+    title: "Claimed security of C*"
+    statement: >
+      The authors argue that an attacker who does not know S and T faces the problem of solving a system of
+      n quadratic equations in n unknowns over GF(q), and that the structure of F is hidden by S and T.
+      No reduction is given; the claim is heuristic.
+    anchor: {"section": "5"}
+    domains: ["multivariate polynomials"]
+  - source_id: src_retro_ln83
+    kind: definition
+    label: "Frobenius"
+    title: "Frobenius automorphism"
+    statement: >
+      For K = GF(q^n) the map sigma(x) = x^q is a field automorphism of K that fixes GF(q) pointwise. It is
+      GF(q)-linear, (x + y)^q = x^q + y^q, and generates the Galois group of K over GF(q), which is cyclic of
+      order n. Every GF(q)-linear combination of the powers sigma^i is again GF(q)-linear.
+    anchor: {"chapter": "2"}
+    domains: ["finite fields"]
+  - source_id: src_retro_ln83
+    kind: theorem
+    label: "linearized polynomials"
+    title: "GF(q)-linear maps of GF(q^n) are q-polynomials"
+    statement: >
+      Every GF(q)-linear map L of K = GF(q^n) into itself has a unique representation
+      L(x) = sum_{i=0}^{n-1} a_i x^(q^i) with a_i in K (a linearized or q-polynomial). Conversely every such
+      expression is GF(q)-linear. Composition of linearized polynomials is linearized.
+    anchor: {"chapter": "3.4"}
+    domains: ["finite fields"]
+  - source_id: src_retro_ln83
+    kind: theorem
+    label: "power permutations"
+    title: "Monomials that permute a finite field"
+    statement: >
+      x -> x^e is a permutation of GF(Q) if and only if gcd(e, Q - 1) = 1.
+    anchor: {"chapter": "7.1"}
+    domains: ["finite fields"]
+  - source_id: src_retro_ln83
+    kind: definition
+    label: "trace and norm"
+    title: "Trace and norm from GF(q^n) to GF(q)"
+    statement: >
+      Tr(x) = x + x^q + ... + x^(q^(n-1)) is a surjective GF(q)-linear map K -> GF(q); N(x) = x^((q^n-1)/(q-1))
+      is multiplicative. Every GF(q)-linear functional on K has the form x -> Tr(a x) for a unique a in K.
+    anchor: {"chapter": "2.3"}
+    domains: ["finite fields"]
+  - source_id: src_retro_ln83
+    kind: proposition
+    label: "quadratic forms over GF(2)"
+    title: "Polynomials of degree two over GF(2) in n variables"
+    statement: >
+      Over GF(2), x_i^2 = x_i on all points, so every function GF(2)^n -> GF(2) of algebraic degree at most 2
+      is uniquely sum_{i<j} a_ij x_i x_j + sum_i b_i x_i + c. The space of such functions has dimension
+      n(n-1)/2 + n + 1. Composing with an affine bijection of GF(2)^n preserves algebraic degree.
+    anchor: {"chapter": "6"}
+    domains: ["multivariate polynomials", "finite fields"]
+  - source_id: src_retro_gj79
+    kind: definition
+    label: "MQ"
+    title: "Solving multivariate quadratic systems is NP-hard"
+    statement: >
+      Given m polynomials of degree 2 in n variables over GF(2), deciding whether they have a common zero is
+      NP-complete (reduction from 3-SAT). The same holds over any finite field. Hardness is worst-case; it
+      says nothing about structured or random instances.
+    anchor: {"appendix": "A7.2 (AN9)"}
+    domains: ["complexity", "multivariate polynomials"]
+  - source_id: src_retro_gj79
+    kind: remark
+    label: "linearization"
+    title: "Linearization of quadratic systems"
+    statement: >
+      Treating every monomial x_i x_j as an independent unknown turns m quadratic equations into m linear
+      equations in about n(n+1)/2 + n unknowns. The system is solvable by Gaussian elimination when m is at
+      least that large; for m = n (as in C*) it is far too underdetermined.
+    anchor: {"folklore"}
+    domains: ["multivariate polynomials"]
+  - source_id: src_retro_buch
+    kind: algorithm
+    label: "Buchberger"
+    title: "Groebner bases"
+    statement: >
+      Buchberger's algorithm computes a Groebner basis of any polynomial ideal; with a lexicographic order
+      the basis of the ideal generated by P(x) - y exposes the solutions of P(x) = y. The running time is
+      doubly exponential in the worst case and, in practice, exponential in n for generic systems of n
+      quadratics in n variables; the complexity is governed by the degrees that appear during the
+      computation.
+    anchor: {"chapter": "6"}
+    domains: ["commutative algebra", "multivariate polynomials"]
+    computational_notes: >
+      Available through run_script with engine sage (PolynomialRing(GF(2), n, 'x'); ideal.groebner_basis()).

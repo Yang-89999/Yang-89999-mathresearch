@@ -231,6 +231,58 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retro_list(args: argparse.Namespace) -> int:
+    from .retro import SCENARIOS
+
+    for s in SCENARIOS.values():
+        print(f"{s.name:16s} knowledge up to {s.year}; target {s.target_family} sizes {s.target_sizes}\n"
+              f"                 {s.description}")
+    return 0
+
+
+def cmd_retro_init(args: argparse.Namespace) -> int:
+    from . import retro
+
+    ws = _workspace(args)
+    try:
+        scenario = retro.get_scenario(args.scenario)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    ws.mkdir(parents=True, exist_ok=True)
+    conn = db.connect(ws / DB_FILE)
+    try:
+        info = retro.setup(conn, ws, scenario, charter_file=CHARTER_FILE)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    (ws / "experiments").mkdir(exist_ok=True)
+    (ws / "sources").mkdir(exist_ok=True)
+    print(f"scenario {scenario.name}: catalog {info['catalog']}, {info['sources']} sources, {info['units']} units, "
+          f"opening question {info['question_id']}")
+    if info["leaks"]:
+        print("WARNING forbidden terms present in: " + ", ".join(info["leaks"]), file=sys.stderr)
+    print(f"now run: mathresearch --dir {ws} run --cycles N   then: mathresearch --dir {ws} retro check")
+    return 0
+
+
+def cmd_retro_check(args: argparse.Namespace) -> int:
+    from . import retro
+
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    try:
+        scenario = retro.get_scenario(args.scenario)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    result = retro.check(conn, scenario)
+    print(retro.render_check(result), end="")
+    if args.json:
+        print(json.dumps(result, indent=1, default=str))
+    return 0 if result["passed"] else 1
+
+
 def cmd_lab_run(args: argparse.Namespace) -> int:
     from .lab import get_family, sweep
     from .lab.attacks import applicable, get_attack
@@ -292,6 +344,18 @@ def build_parser() -> argparse.ArgumentParser:
     cs = s.add_subparsers(dest="catalog_command", required=True)
     c = cs.add_parser("load", help="load the seed catalogs of known problems and attacks")
     c.set_defaults(func=cmd_catalog_load)
+
+    s = sub.add_parser("retro", help="retrodiction tests: rediscover a known result from the knowledge of its time")
+    rs = s.add_subparsers(dest="retro_command", required=True)
+    c = rs.add_parser("list", help="list scenarios")
+    c.set_defaults(func=cmd_retro_list)
+    c = rs.add_parser("init", help="seed an empty workspace with a scenario")
+    c.add_argument("--scenario", default="patarin_1995")
+    c.set_defaults(func=cmd_retro_init)
+    c = rs.add_parser("check", help="report whether the scenario's answer has been found (exit 0 when passed)")
+    c.add_argument("--scenario", default="patarin_1995")
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(func=cmd_retro_check)
 
     s = sub.add_parser("reflect", help="tidy the agenda and regenerate the world digest now")
     s.set_defaults(func=cmd_reflect)

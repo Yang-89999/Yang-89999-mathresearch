@@ -137,6 +137,33 @@ any charter domain with no live question. `mathresearch reflect` runs it
 on demand and writes `digest.md`; digests are also kept in the `digests`
 table.
 
+## Submitted attacks and the retrodiction test
+
+Workers can propose attacks as code. `submit_attack` takes a self-contained
+script, runs it in the sandbox on fresh instances the lab generates (the
+script sees only `instance.json`, the public polynomials), verifies every
+claimed solution, sweeps sizes for a cost curve, records an experiment and a
+finding, and registers the attack when it works. A candidate is `broken`
+only when every size is solved with polynomial-like growth.
+
+The same machinery drives the **retrodiction test**, the acceptance test for
+the whole system: can it rediscover a known result from the knowledge of
+its time?
+
+```bash
+mathresearch --dir ~/retro retro init --scenario patarin_1995
+mathresearch --dir ~/retro run --cycles 10
+mathresearch --dir ~/retro retro check
+```
+
+`patarin_1995` seeds a workspace with only pre-1995 knowledge (Matsumoto and
+Imai 1988, Lidl and Niederreiter, Garey and Johnson, Buchberger), removes
+every catalog entry published later, hides the lab's own implementation of
+Patarin's attack from the tools, and opens one `attack` question on C*.
+`retro check` passes when a submitted attack breaks `matsumoto_imai` at
+n = 13 with polynomial-like growth, and warns if any forbidden term leaked
+into the seeded knowledge.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
@@ -144,6 +171,7 @@ table.
 - [x] PR 3: attack lab v1 (MQ and C* families, four attacks, sweeps, ladder) and seed catalogs
 - [x] PR 4: literature ingestion (arXiv LaTeX sources, IACR ePrint PDFs, local files) and learn-question tools
 - [x] PR 5: reflection step, agenda hygiene and the world digest
-- [ ] Retrodiction test (rediscover Patarin's break of C* from pre-1995 literature)
+- [x] PR 6: submitted attacks, hidden-knowledge scenarios, retrodiction test `patarin_1995`
+- [ ] Concurrency, cost accounting, more families (HFE, UOV, MinRank) and attacks
 
 The design review and build plan live in the project's design document.
