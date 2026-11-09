@@ -28,7 +28,8 @@ Rules:
    training, and focus, not to learn it from scratch. Before reading, state the brief: the question you
    serve, what you expect the paper to say (your prior), and the decision the reading will change. If you
    cannot name the decision, do not read. Read top-down: read_source 'card', then 'outline', then only the
-   sections you need ('section' with the purpose), and open_unit for a single statement. If the knowledge
+   sections you need ('section' with the purpose), open_unit for a single statement, and follow to trace
+   a statement to the definitions and lemmas it uses, what builds on it, and the papers it cites. If the knowledge
    base lacks a paper, find and ingest it (search_literature, ingest_source) or open a 'learn' question
    (blocks_parent: true when you cannot continue without it) instead of guessing. Return a reading note for
    every source you read: where it differed from your prior, what structure its attacks exploit, and the

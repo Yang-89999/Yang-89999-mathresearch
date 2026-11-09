@@ -10,10 +10,12 @@
     mathresearch ingest fetch 2301.00001   download papers and split them into knowledge units
     mathresearch ingest file paper.tex     ingest a local LaTeX/PDF/text file
     mathresearch ingest seed SOURCE_ID     queue a seed read for a source already ingested
+    mathresearch ingest relink             record references, citations and proofs for sources ingested earlier
     mathresearch library list|fetch        the reading list: open-access references fetched for you, textbooks you place
     mathresearch lessons list              lessons from experts' published work (after catalog load)
     mathresearch lessons ingest            fetch the papers behind the lessons and queue seed reads
     mathresearch units search 'Groebner'   search the knowledge base
+    mathresearch units follow UNIT_ID      what a unit uses, what uses it, what it cites (and its proof)
     mathresearch report runs|problems|questions   read what the system found (Markdown; add > file.md to save)
     mathresearch memory search 'MinRank'   search what the system has recorded: findings, questions, notes, candidates
     mathresearch transcript RUN_ID         replay a run's whole conversation (kept under transcripts/)
@@ -426,6 +428,27 @@ def cmd_transcript(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ingest_relink(args: argparse.Namespace) -> int:
+    from . import ingest
+
+    conn = db.connect(_workspace(args) / DB_FILE)
+    res = ingest.relink(conn, args.source_id)
+    print(f"relinked {res['sources']} LaTeX sources ({res['units']} units): {res['links']} references resolved"
+          + (f"; skipped {len(res['skipped'])} without LaTeX files" if res["skipped"] else ""))
+    return 0
+
+
+def cmd_units_follow(args: argparse.Namespace) -> int:
+    from .tools.registry import ToolContext, execute
+
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    ctx = ToolContext(conn=conn, workspace=ws, question={"id": None}, run_id="cli")
+    text, err = execute("follow", {"unit_id": args.unit_id, "include_proof": args.proof}, ctx)
+    print(text)
+    return 1 if err or text.startswith("No unit") else 0
+
+
 def cmd_units_search(args: argparse.Namespace) -> int:
     conn = db.connect(_workspace(args) / DB_FILE)
     hits = store.search_units(conn, args.query, limit=args.limit)
@@ -618,6 +641,10 @@ def build_parser() -> argparse.ArgumentParser:
     c = isub.add_parser("seed", help="queue a seed read for sources already ingested")
     c.add_argument("source_ids", nargs="+")
     c.set_defaults(func=cmd_ingest_seed)
+    c = isub.add_parser("relink", help="record references, citations, proofs and bibliographies for LaTeX "
+                                       "sources ingested before these were kept")
+    c.add_argument("source_id", nargs="?")
+    c.set_defaults(func=cmd_ingest_relink)
     c = isub.add_parser("search", help="search arXiv; * marks papers already ingested")
     c.add_argument("query")
     c.add_argument("--max", type=int, default=10)
@@ -651,6 +678,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("query")
     c.add_argument("--limit", type=int, default=10)
     c.set_defaults(func=cmd_units_search)
+    c = us.add_parser("follow", help="what a unit uses, what uses it, what it cites")
+    c.add_argument("unit_id")
+    c.add_argument("--proof", action="store_true", help="also print its proof")
+    c.set_defaults(func=cmd_units_follow)
 
     s = sub.add_parser("memory", help="search what the system has recorded")
     ms = s.add_subparsers(dest="memory_command", required=True)

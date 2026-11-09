@@ -71,6 +71,54 @@ def _search_findings(args: dict[str, Any], ctx: ToolContext) -> str:
     return "\n".join(lines) + "\nUse read_question or read_problem for the full record."
 
 
+def _unit_line(u: dict[str, Any], chars: int = 220) -> str:
+    head = f"[{u['id']}] {u['kind']}" + (f" {u['label']}" if u.get("label") else "") + (
+        f" ({u['title']})" if u.get("title") else "")
+    st = " ".join((u.get("statement") or "").split())
+    return f"{head}: {st[:chars]}" + ("..." if len(st) > chars else "")
+
+
+def _follow(args: dict[str, Any], ctx: ToolContext) -> str:
+    from .. import ingest
+    u = store.get(ctx.conn, "units", args["unit_id"])
+    if not u:
+        return f"No unit with id {args['unit_id']}"
+    src = store.get(ctx.conn, "sources", u["source_id"]) if u.get("source_id") else None
+    section = (u.get("anchor") or {}).get("section")
+    out = [_unit_line(u, 800) + (f"\n  in: {src['title']}" if src else "") + (f", section {section}" if section else "")]
+    deps = [d for d in (store.get(ctx.conn, "units", i) for i in (u.get("depends_on") or [])) if d]
+    out.append(f"\nUses ({len(deps)}):" if deps else "\nUses: no resolved references to other units of this source.")
+    out += ["- " + _unit_line(d) for d in deps]
+    users = store.select(ctx.conn, "units", "source_id = ? AND depends_on LIKE ?", (u["source_id"], f'%"{u["id"]}"%'),
+                         order="rowid") if u.get("source_id") else []
+    out.append(f"\nUsed by ({len(users)}):" if users else "\nUsed by: no unit of this source refers to it.")
+    out += ["- " + _unit_line(x) for x in users]
+    bib = (src or {}).get("bibliography") or {}
+    cites = u.get("cites") or []
+    if cites:
+        out.append(f"\nCites ({len(cites)}):")
+        for key in cites:
+            e = bib.get(key) or {}
+            known = None
+            for service in ("arxiv", "eprint"):
+                if e.get(service):
+                    known = ingest.find_source(ctx.conn, service, e[service])
+                    ref = f"{'arXiv:' if service == 'arxiv' else 'ePrint '}{e[service]}"
+                    where = (f"in the knowledge base as [{known['id']}] (read_source)" if known
+                             else f"not ingested; ingest_source('{e[service]}') to read it")
+                    break
+            else:
+                ref = f"doi:{e['doi']}" if e.get("doi") else "no arXiv/ePrint id"
+                where = "find it with search_literature" if e else "not in the bibliography"
+            out.append(f"- [{key}] {(e.get('text') or '')[:220]} -- {ref}; {where}")
+    proof = u.get("proof_sketch")
+    if args.get("include_proof"):
+        out.append("\nProof:\n" + (proof[:4000] if proof else "No proof recorded for this unit."))
+    elif proof:
+        out.append("\nA proof is recorded; call follow with include_proof true to read it.")
+    return "\n".join(out)
+
+
 def _open_unit(args: dict[str, Any], ctx: ToolContext) -> str:
     u = store.get(ctx.conn, "units", args["unit_id"])
     if not u:
@@ -511,6 +559,18 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
                 "kind": {"type": "string", "enum": ["all", "findings", "questions", "notes", "problems"]},
                 "limit": {"type": "integer", "description": "Max hits, 1-30."}}},
         ), _search_findings),
+    "follow": (
+        ToolSpec(
+            name="follow",
+            description="Navigate a paper by its logic, not by similarity: for one unit, the units it uses "
+                        "(resolved \\ref links), the units of the same paper that use it, the works it cites "
+                        "(with arXiv/ePrint ids and whether they are already ingested) and, on request, its proof. "
+                        "Use it to trace a theorem back to its definitions and lemmas, or forward to what it "
+                        "enables, before searching elsewhere.",
+            input_schema={"type": "object", "properties": {
+                "unit_id": {"type": "string"},
+                "include_proof": {"type": "boolean", "description": "Also return the proof, when one is recorded."}}},
+        ), _follow),
     "search_units": (
         ToolSpec(
             name="search_units",

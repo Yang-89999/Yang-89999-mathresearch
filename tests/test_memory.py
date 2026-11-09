@@ -47,7 +47,7 @@ def test_migration_indexes_existing_memory(tmp_path, monkeypatch):
     old.close()
     monkeypatch.undo()
     conn = db.connect(path)
-    assert db.current_version(conn) == db.SCHEMA_VERSION == 5
+    assert db.current_version(conn) == db.SCHEMA_VERSION >= 5
     assert store.search_memory(conn, "tensor isomorphism")
 
 
