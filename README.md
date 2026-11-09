@@ -281,6 +281,14 @@ today and in total, by model; the world digest shows spend by lane.
 questions at once, each worker with its own database connection; the main
 thread alone picks questions, checks the caps and runs the reflection step.
 
+Ctrl+C stops `run` safely. A run cut off mid-way is recorded as cancelled with
+the tokens and dollars it had used, and its question goes back on the agenda.
+If a process dies without that chance (a crash, a closed laptop lid), the
+next `run` marks its unfinished runs cancelled and reopens their questions;
+`status` then notes that their spend was not recorded. Run one `run` process
+per workspace at a time, since that recovery assumes no other process is
+working on the same database.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI

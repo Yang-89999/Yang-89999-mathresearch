@@ -86,6 +86,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  {m:24s} {v['runs']:4d} runs  ${v['usd']:.2f}  {v['input_tokens']:,} in / {v['output_tokens']:,} out")
     if sp["unpriced_runs"]:
         print(f"  {sp['unpriced_runs']} runs have no price (add the model to the charter's pricing section)")
+    if sp["unrecorded_runs"]:
+        print(f"  {sp['unrecorded_runs']} runs were stopped before their spend was recorded; "
+              f"your provider's usage page has the true total")
     if charter_path.exists():
         try:
             b = Charter.load(charter_path).budget
@@ -172,6 +175,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     except UnpricedModelError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("\nstopped: unfinished runs are recorded as cancelled and their questions reopened", file=sys.stderr)
+        return 130
     for w in outcomes.warnings:
         print(f"warning: {w}", file=sys.stderr)
     if outcomes.stopped_because:

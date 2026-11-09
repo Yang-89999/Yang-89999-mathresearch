@@ -216,3 +216,52 @@ def test_cli_run_refuses_unpriced_and_accepts_budget_flag(tmp_path, capsys, monk
                  "--workers", "1", "--budget-usd", "0.5"]) == 0
     out = capsys.readouterr().out
     assert "1 cycles, 0 failed" in out and "this invocation" in out
+
+
+# -- stopping with Ctrl+C -------------------------------------------------------------
+
+class InterruptAfter(PricedFake):
+    """Answers its scripted responses, then behaves as if the operator pressed Ctrl+C."""
+    def complete(self, request):
+        if not self.responses:
+            raise KeyboardInterrupt
+        return super().complete(request)
+
+
+def test_ctrl_c_records_spend_and_reopens_the_question(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    qid = store.insert(conn, "questions", kind="survey", lane="harvest", status="open", title="Q")
+    with pytest.raises(KeyboardInterrupt):
+        run_question(conn, _charter(), InterruptAfter([_call((10_000, 1_000))]), store.get(conn, "questions", qid),
+                     tmp_path)
+    assert store.get(conn, "questions", qid)["status"] == "open"
+    run = store.select(conn, "runs")[0]
+    assert run["status"] == "cancelled" and "interrupted" in run["error"]
+    assert run["input_tokens"] == 10_000 and run["cost_usd"] == pytest.approx((10_000 * 4 + 1_000 * 20) / 1e6)
+    assert pricing.spend(conn)["usd_total"] == pytest.approx(0.06)
+
+
+def test_next_run_recovers_what_a_killed_process_left_running(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    stuck = store.insert(conn, "questions", kind="survey", lane="harvest", status="running", title="Stuck")
+    store.insert(conn, "runs", question_id=stuck, lane="harvest", provider="x", model="claude-opus-5-5",
+                 status="running")
+    res = run_cycles(conn, _charter(), PricedFake([_final()]), tmp_path, cycles=1, seed=1)
+    assert any("1 unfinished runs marked cancelled, 1 questions reopened" in w for w in res.warnings)
+    statuses = {r["status"] for r in store.select(conn, "runs")}
+    assert "running" not in statuses and "cancelled" in statuses
+    assert store.get(conn, "questions", stuck)["status"] != "running"
+    s = pricing.spend(conn)
+    assert s["unrecorded_runs"] == 1 and s["unpriced_runs"] == 0
+
+
+def test_cli_ctrl_c_exits_cleanly(tmp_path, capsys, monkeypatch):
+    main(["--dir", str(tmp_path), "init"])
+    capsys.readouterr()
+    import mathresearch.loop as loop_mod
+
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(loop_mod, "run_cycles", interrupted)
+    assert main(["--dir", str(tmp_path), "run", "--provider", "fake", "--allow-unpriced"]) == 130
+    assert "recorded as cancelled" in capsys.readouterr().err

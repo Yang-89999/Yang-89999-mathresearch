@@ -126,6 +126,9 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                 error = f"no write-back after {max_steps} steps"
     except Exception as exc:  # provider/network failures end the run but keep the record
         error = f"{type(exc).__name__}: {exc}"
+    except KeyboardInterrupt:  # Ctrl+C: record what was spent, put the question back, then stop
+        _record_cancelled(conn, run_id, question["id"], usage, model_id, charter)
+        raise
 
     if data is not None and error is None:
         try:
@@ -148,6 +151,32 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                  finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return RunOutcome(run_id=run_id, question_id=question["id"], status=status, steps=steps, usage=usage,
                       created=created, error=error, cost_usd=cost, budget_note=budget_note)
+
+
+INTERRUPTED = "interrupted: the process stopped before the run finished"
+
+
+def _record_cancelled(conn: sqlite3.Connection, run_id: str, question_id: str, usage: Usage, model_id: str | None,
+                      charter: Charter) -> None:
+    store.update(conn, "questions", question_id, status="open")
+    store.update(conn, "runs", run_id, status="cancelled", input_tokens=usage.input_tokens,
+                 output_tokens=usage.output_tokens, cost_usd=pricing.cost_of(usage, model_id, charter.pricing),
+                 error=INTERRUPTED, context_ids={"cached_input_tokens": usage.cached_input_tokens,
+                                                 "cache_write_tokens": usage.cache_write_tokens},
+                 finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+
+
+def recover_interrupted(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Close runs and reopen questions left 'running' by a process that was stopped (Ctrl+C, a crash, a closed
+    laptop lid). Call it only when no other process is running workers on this database."""
+    runs = [r["id"] for r in conn.execute("SELECT id FROM runs WHERE status = 'running'").fetchall()]
+    questions = [r["id"] for r in conn.execute("SELECT id FROM questions WHERE status = 'running'").fetchall()]
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for rid in runs:
+        store.update(conn, "runs", rid, status="cancelled", error=INTERRUPTED, finished_at=now)
+    for qid in questions:
+        store.update(conn, "questions", qid, status="open")
+    return {"runs": runs, "questions": questions}
 
 
 def _parse_writeback(text: str) -> dict[str, Any] | None:

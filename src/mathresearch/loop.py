@@ -20,7 +20,7 @@ from . import agenda, db, pricing, store
 from .charter import Charter
 from .providers.base import Provider
 from .reflect import Reflection, reflect
-from .worker import RunOutcome, run_question
+from .worker import RunOutcome, recover_interrupted, run_question
 
 
 class UnpricedModelError(RuntimeError):
@@ -64,6 +64,11 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
     warning = check_pricing(charter, provider, model, allow_unpriced)
     if warning:
         result.warnings.append(warning)
+    recovered = recover_interrupted(conn)
+    if recovered["runs"] or recovered["questions"]:
+        result.warnings.append(
+            f"recovered from an earlier stop: {len(recovered['runs'])} unfinished runs marked cancelled, "
+            f"{len(recovered['questions'])} questions reopened")
     rng = random.Random(seed)
     agenda.seed(conn, charter)
     path = _db_path(conn)
