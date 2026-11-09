@@ -7,6 +7,9 @@
     mathresearch run --cycles N        run N research cycles with the configured model provider
     mathresearch catalog load          load the seed catalogs of known problems and attacks
     mathresearch lab run --family mq   run attack sweeps from the command line
+    mathresearch ingest fetch 2301.00001   download papers and split them into knowledge units
+    mathresearch ingest file paper.tex     ingest a local LaTeX/PDF/text file
+    mathresearch units search 'Groebner'   search the knowledge base
 """
 
 from __future__ import annotations
@@ -145,6 +148,73 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
     return 0
 
 
+def _domains(text: str | None) -> list[str] | None:
+    return [d.strip() for d in text.split(",") if d.strip()] if text else None
+
+
+def cmd_ingest_fetch(args: argparse.Namespace) -> int:
+    from . import ingest
+
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    failures = 0
+    for i, ref in enumerate(args.refs):
+        if i:
+            ingest.ax.polite_sleep(args.delay)
+        try:
+            res = ingest.ingest_reference(conn, ref, ws, domains=_domains(args.domains), delay=args.delay,
+                                          force=args.force)
+        except Exception as exc:  # report and continue with the next reference
+            print(f"{ref}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        print(res.summary())
+    return 1 if failures and failures == len(args.refs) else 0
+
+
+def cmd_ingest_file(args: argparse.Namespace) -> int:
+    from . import ingest
+
+    conn = db.connect(_workspace(args) / DB_FILE)
+    try:
+        res = ingest.ingest_file(conn, Path(args.path).expanduser(), title=args.title, kind=args.kind,
+                                 year=args.year, domains=_domains(args.domains))
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(res.summary())
+    return 0
+
+
+def cmd_ingest_search(args: argparse.Namespace) -> int:
+    from . import ingest
+
+    conn = db.connect(_workspace(args) / DB_FILE)
+    try:
+        hits = ingest.search(conn, args.query, max_results=args.max)
+    except OSError as exc:  # URLError is an OSError: no network, DNS, proxy
+        print(f"arXiv search failed: {exc}", file=sys.stderr)
+        return 1
+    for h in hits:
+        mark = "*" if h["ingested_source_id"] else " "
+        print(f"{mark} arXiv:{h['arxiv_id']:14s} {h['year']}  {h['title'][:90]}")
+        print(f"                   {', '.join(h['authors'][:3])}  [{', '.join(h['categories'])}]")
+    if not hits:
+        print("no results")
+    return 0
+
+
+def cmd_units_search(args: argparse.Namespace) -> int:
+    conn = db.connect(_workspace(args) / DB_FILE)
+    hits = store.search_units(conn, args.query, limit=args.limit)
+    for u in hits:
+        print(f"[{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}".rstrip())
+        print("    " + u["statement"][:300].replace("\n", " "))
+    if not hits:
+        print("no units match")
+    return 0
+
+
 def cmd_lab_run(args: argparse.Namespace) -> int:
     from .lab import get_family, sweep
     from .lab.attacks import applicable, get_attack
@@ -206,6 +276,33 @@ def build_parser() -> argparse.ArgumentParser:
     cs = s.add_subparsers(dest="catalog_command", required=True)
     c = cs.add_parser("load", help="load the seed catalogs of known problems and attacks")
     c.set_defaults(func=cmd_catalog_load)
+
+    s = sub.add_parser("ingest", help="bring literature into the knowledge base")
+    isub = s.add_subparsers(dest="ingest_command", required=True)
+    c = isub.add_parser("fetch", help="download arXiv / IACR ePrint papers and split them into units")
+    c.add_argument("refs", nargs="+", help="arXiv ids or URLs, ePrint ids like 2024/123 or URLs")
+    c.add_argument("--domains", help="comma-separated domain tags for the units")
+    c.add_argument("--delay", type=float, default=3.0, help="seconds between requests (arXiv asks for 3)")
+    c.add_argument("--force", action="store_true", help="re-ingest even if the source is already present")
+    c.set_defaults(func=cmd_ingest_fetch)
+    c = isub.add_parser("file", help="ingest a local .tex file, LaTeX directory, .pdf or text file")
+    c.add_argument("path")
+    c.add_argument("--title")
+    c.add_argument("--kind", default="paper", choices=["paper", "book", "notes", "web", "other"])
+    c.add_argument("--year", type=int)
+    c.add_argument("--domains")
+    c.set_defaults(func=cmd_ingest_file)
+    c = isub.add_parser("search", help="search arXiv; * marks papers already ingested")
+    c.add_argument("query")
+    c.add_argument("--max", type=int, default=10)
+    c.set_defaults(func=cmd_ingest_search)
+
+    s = sub.add_parser("units", help="knowledge-unit commands")
+    us = s.add_subparsers(dest="units_command", required=True)
+    c = us.add_parser("search", help="full-text search over knowledge units")
+    c.add_argument("query")
+    c.add_argument("--limit", type=int, default=10)
+    c.set_defaults(func=cmd_units_search)
 
     s = sub.add_parser("lab", help="attack lab commands")
     ls = s.add_subparsers(dest="lab_command", required=True)

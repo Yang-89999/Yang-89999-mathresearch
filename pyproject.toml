@@ -17,6 +17,7 @@ dependencies = [
 dev = ["pytest>=8.0"]
 anthropic = ["anthropic>=0.80"]
 openai = ["openai>=2.0"]
+pdf = ["pypdf>=4.0"]
 
 [project.scripts]
 mathresearch = "mathresearch.cli:main"

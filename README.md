@@ -63,8 +63,8 @@ mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-5
 
 Each cycle picks a question (lane chosen by the charter's shares), assembles
 the worker's context from the database, runs the model with tools
-(`search_units`, `open_unit`, `run_script`, `list_catalog`, `read_problem`,
-`read_question`) and applies its structured write-back: findings with
+(`search_units`, `open_unit`, `search_literature`, `ingest_source`, `run_script`,
+`run_attack`, `ladder_evaluate`, `list_catalog`, `read_problem`, `read_question`) and applies its structured write-back: findings with
 evidence, new questions (a knowledge gap opens a `learn` question that blocks
 its parent), candidate problems, and the rewritten question summary. The
 conversation is discarded; only the write-back persists. `--provider fake`
@@ -98,11 +98,37 @@ linearization, Patarin's linearization equations, and Gröbner bases through
 SageMath when installed. Workers reach the lab through the `run_attack` and
 `ladder_evaluate` tools.
 
+## Literature ingestion
+
+"Learn while thinking" needs literature the workers can cite exactly.
+`mathresearch.ingest` downloads papers and splits them into knowledge
+units with anchors (file, line, section, `\label`):
+
+```bash
+mathresearch --dir ~/research ingest search "ti:multivariate AND abs:linearization"
+mathresearch --dir ~/research ingest fetch 2301.00001 https://eprint.iacr.org/2024/123 --domains multivariate
+mathresearch --dir ~/research ingest file ~/papers/patarin95.tex --year 1995
+mathresearch --dir ~/research units search "linearization equations"
+```
+
+arXiv e-print sources (LaTeX) give exact units: every theorem-like
+environment, including ones declared with `\newtheorem`, plus `algorithm`
+floats, with `\input` files inlined and zero-argument macros expanded.
+IACR ePrint only publishes PDFs, so those go through `pypdf`
+(`pip install -e ".[pdf]"`) and a heuristic that recognises paragraphs
+starting with "Theorem 3.1.". Downloads are kept under
+`~/research/sources/<service>/<id>/` so anchors can be reopened.
+
+Workers reach the same code through the `search_literature`,
+`ingest_source` and `list_sources` tools; a `learn` question is expected to
+end with the needed material indexed and a finding per source.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
 - [x] PR 2: worker loop, provider adapters (OpenAI Responses, Claude Messages), write-back, agenda with lanes
 - [x] PR 3: attack lab v1 (MQ and C* families, four attacks, sweeps, ladder) and seed catalogs
-- [ ] Literature ingestion (arXiv / IACR ePrint LaTeX sources), retrodiction test
+- [x] PR 4: literature ingestion (arXiv LaTeX sources, IACR ePrint PDFs, local files) and learn-question tools
+- [ ] Reflection step and world digest; retrodiction test
 
 The design review and build plan live in the project's design document.
