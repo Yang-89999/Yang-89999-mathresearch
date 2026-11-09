@@ -12,7 +12,7 @@ import re
 import sqlite3
 from typing import Any
 
-from . import store
+from . import reading, store
 from .charter import Charter
 from .reflect import digest_for_context
 
@@ -24,10 +24,15 @@ tools, and the relevant state. You must end by returning the structured write-ba
 schema you were given); it is the only thing that persists. Nothing you say outside it is kept.
 
 Rules:
-1. Learn before you claim. Search the knowledge base for exact statements before relying on memory. If the
-   knowledge base lacks what you need, either ingest the paper now (search_literature, then ingest_source;
-   cheap, do it when you know which paper) or open a 'learn' question (blocks_parent: true when you cannot
-   continue without it) instead of guessing.
+1. Read with a purpose. You already know this field; read for exact statements, results newer than your
+   training, and focus, not to learn it from scratch. Before reading, state the brief: the question you
+   serve, what you expect the paper to say (your prior), and the decision the reading will change. If you
+   cannot name the decision, do not read. Read top-down: read_source 'card', then 'outline', then only the
+   sections you need ('section' with the purpose), and open_unit for a single statement. If the knowledge
+   base lacks a paper, find and ingest it (search_literature, ingest_source) or open a 'learn' question
+   (blocks_parent: true when you cannot continue without it) instead of guessing. Return a reading note for
+   every source you read: where it differed from your prior, what structure its attacks exploit, and the
+   ideas it gives you. Every idea becomes a new question or candidate, or you say why it is not actionable.
 2. Attack before you believe. A hardness claim without an experiment is at most a hypothesis. Use run_script
    for every computational claim, run_attack to measure how standard attacks scale against a problem family,
    and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence.
@@ -38,11 +43,17 @@ Rules:
    what information is lost, is there a natural inverse, reconstruction or classification problem, does it
    live over finite fields, what is known about inverting it, does it hide an abelian group structure a
    quantum algorithm could exploit, and does it offer a trapdoor or a group action.
-5. Preserve surprises. An unexpected connection or anomaly is a finding of kind 'anomaly' or 'novelty' even
+5. Say what sparked each new question and candidate: a reference you read (sparked_by 'reference' with the
+   source id), an experiment's result ('experiment' with its id), or your own prior ('prior'). Ideas grounded
+   in the references and in experiments are worth more than ideas from memory alone.
+6. Audit every candidate against the weakness patterns (list_weakness_patterns): the structural reasons
+   known schemes broke. Run the pattern's test and record 'avoided' or 'vulnerable' with the experiment id;
+   'untested' is honest, a claim without an experiment is not accepted.
+7. Preserve surprises. An unexpected connection or anomaly is a finding of kind 'anomaly' or 'novelty' even
    when its cryptographic use is unclear.
-6. Every finding carries evidence: a unit id, a source id with page or label, or an experiment id.
+8. Every finding carries evidence: a unit id, a source id with page or label, or an experiment id.
    Reasoning-only findings must say so and carry lower confidence.
-7. Be precise and brief. Exact statements, exact parameters, no filler.
+9. Be precise and brief. Exact statements, exact parameters, no filler.
 """
 
 LANE_INSTRUCTIONS = {
@@ -80,12 +91,30 @@ including the ones that failed. Known attacks from the catalog are available thr
 attack counts only once submit_attack has verified it.
 """,
     "learn": """
-# This is a learn question
-Its job is to bring material into the knowledge base, not to do research on it. Find the papers
-(search_literature), ingest them (ingest_source), check that the units you needed are there (search_units),
-and record a finding per ingested source (evidence_kind 'source' or 'unit') saying what it covers and what is
-still missing. Close the question when the material the parent needs is indexed; open a further learn
-question only for what you could not obtain.
+# This is a learn question (pulled reading)
+A parent question needs material it cannot state exactly from memory. Start from the brief: what the parent
+needs, what you expect the material to say, and which decision of the parent it will change. Find the papers
+(search_literature), ingest them (ingest_source), and read top-down (read_source card, outline, then only the
+needed sections). Return a reading note per source and a finding per fact the parent needs, with unit or source
+ids. Close the question with a summary that says what changed for the parent; open a further learn question
+only for what you could not obtain.
+""",
+    "seed": """
+# This is a seed read
+The operator chose this paper as a reference: it is a seed for research, not a course. Before reading, write
+down what you already know about it and its topic (the reading note's prior). Then read top-down (read_source
+card, outline, the sections that matter for PQC design) and ask: as a designer of post-quantum hardness
+assumptions, what does this make me want to try? A variant that removes the structure an attack exploited, a
+transfer of the hard core to another setting, an attack idea on a related scheme, a classification or
+reconstruction problem hiding in a theorem. Deliver: the paper card (source_cards), a reading note, and at
+least one new question or candidate with sparked_by 'reference' and this source id. If the paper suggests
+nothing actionable, record a negative finding saying why. The question cannot close otherwise.
+""",
+    "survey": """
+# This is a survey (browsing)
+Browse widely but shallowly: paper cards and abstracts (read_source 'card', search_literature), not full
+sections. Read through one lens: what is hard here, what broke and why, and which nearby problem nobody has
+tried. A survey is useful only if it yields candidates or attack ideas; emit them with what sparked them.
 """,
 }
 
@@ -98,6 +127,19 @@ def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: i
     parts = ["# Your question", _question_block(question)]
     if question.get("kind") in KIND_INSTRUCTIONS:
         parts.append(KIND_INSTRUCTIONS[question["kind"]].strip())
+
+    origin_src = None
+    if question.get("origin") in ("operator", "reference") and question.get("origin_id"):
+        origin_src = store.get(conn, "sources", question["origin_id"])
+        if origin_src:
+            parts.append("# The reference behind this question (read_source for more)\n"
+                         + reading.card_text(conn, origin_src))
+    elif question.get("origin") == "experiment" and question.get("origin_id"):
+        e = store.get(conn, "experiments", question["origin_id"])
+        if e:
+            parts.append(f"# The experiment that sparked this question\n[{e['id']}] {e['engine']} "
+                         f"params={json.dumps(e.get('params'), default=str)[:300]} "
+                         f"result={json.dumps(e.get('result'), default=str)[:600]}")
 
     chain = _parent_chain(conn, question)
     if chain:
@@ -114,8 +156,13 @@ def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: i
         p = store.get(conn, "problems", question["problem_id"])
         if p:
             parts.append("# Problem under investigation")
-            parts.append(json.dumps({k: v for k, v in p.items() if v not in (None, "", [])},
-                                    ensure_ascii=False, indent=1, default=str))
+            parts.append(json.dumps({k: v for k, v in p.items() if v not in (None, "", [], {})
+                                     and k != "weakness_audit"}, ensure_ascii=False, indent=1, default=str))
+            if p["status"] != "known":
+                audit = reading.audit_summary(conn, p)
+                parts.append("# Weakness audit of this problem\n" + "\n".join(
+                    f"- {status}: {', '.join(ids)}" for status, ids in audit.items() if ids)
+                    + "\nTest the untested patterns that matter (list_weakness_patterns) and report weakness_audits.")
 
     findings = store.select(conn, "findings", "question_id = ?", (question["id"],), order="created_at DESC", limit=15)
     if findings:
@@ -131,7 +178,23 @@ def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: i
             parts.append(f"- [{e['id']}] {e['engine']} exit {e['exit_code']} {e['wall_seconds']}s "
                          f"result={json.dumps(e.get('result'))[:300]}")
 
+    notes = store.select(conn, "reading_notes", "question_id = ?", (question["id"],), order="created_at DESC",
+                         limit=6)
+    if notes:
+        parts.append("# Your reading notes on this question")
+        parts += [f"- [{n['id']}] source {n['source_id']}: decision: {(n.get('decision') or '-')[:160]}; "
+                  f"surprises: {(n.get('surprises') or '-')[:200]}; ideas: {'; '.join(n.get('ideas') or [])[:300]}"
+                  for n in notes]
+
     units = _related_units(conn, question, max_units)
+    source_ids = [sid for sid in dict.fromkeys(u.get("source_id") for u in units)
+                  if sid and (origin_src is None or sid != origin_src["id"])][:3]
+    if source_ids:
+        parts.append("# Papers that may be relevant (cards; read_source to go deeper)")
+        for sid in source_ids:
+            src = store.get(conn, "sources", sid)
+            if src:
+                parts.append(reading.card_text(conn, src)[:900])
     if units:
         parts.append("# Knowledge units that may be relevant (open them for full statements)")
         parts += [f"- [{u['id']}] {u['kind']} {u.get('label') or ''}: {u['statement'][:200]}" for u in units]

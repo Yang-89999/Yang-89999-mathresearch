@@ -30,6 +30,7 @@ class ToolContext:
     fetch: Callable[[str], bytes] | None = None   # network access for ingestion; None = real HTTP
     fetch_delay: float = 3.0
     hidden_attacks: frozenset[str] = frozenset()  # lab attacks withheld from this run (retrodiction tests)
+    reads: list[dict[str, Any]] = field(default_factory=list)  # read_source calls: what was read and why
 
 
 Executor = Callable[[dict[str, Any], ToolContext], str]
@@ -94,6 +95,9 @@ def _read_problem(args: dict[str, Any], ctx: ToolContext) -> str:
     out["recent_findings"] = [{"id": f["id"], "kind": f["kind"], "claim": f["claim"]} for f in findings]
     out["recent_experiments"] = [{"id": e["id"], "engine": e["engine"], "exit_code": e["exit_code"],
                                   "result": e.get("result")} for e in experiments]
+    if p["status"] != "known":
+        from ..reading import audit_summary
+        out["weakness_audit_by_status"] = audit_summary(ctx.conn, p)
     return json.dumps(out, ensure_ascii=False, indent=1, default=str)
 
 
@@ -178,8 +182,11 @@ def _ladder_evaluate(args: dict[str, Any], ctx: ToolContext) -> str:
                       ctx.script_timeout), question_id=ctx.question["id"], run_id=ctx.run_id,
                       exclude=set(ctx.hidden_attacks))
     verdicts = result.get("attacks", {}).get("verdicts", [])
-    return json.dumps({"status": result["status"], "well_defined": result["well_defined"], "verdicts": verdicts},
-                      indent=1, default=str)
+    from ..reading import audit_summary
+    audit = audit_summary(ctx.conn, store.get(ctx.conn, "problems", problem["id"]))
+    return json.dumps({"status": result["status"], "well_defined": result["well_defined"], "verdicts": verdicts,
+                       "weakness_patterns_untested": audit["untested"],
+                       "weakness_patterns_vulnerable": audit["vulnerable"]}, indent=1, default=str)
 
 
 def _domains_arg(args: dict[str, Any], ctx: ToolContext) -> list[str] | None:
@@ -216,7 +223,10 @@ def _ingest_source(args: dict[str, Any], ctx: ToolContext) -> str:
         return str(exc)
     except Exception as exc:  # network / parsing failures are information for the model
         return f"ingestion failed: {type(exc).__name__}: {exc}"
-    text = result.summary()
+    src = store.get(ctx.conn, "sources", result.source_id)
+    if src and not src.get("provided_by"):
+        store.update(ctx.conn, "sources", result.source_id, provided_by="agent")
+    text = result.summary() + "\nNext: read_source with level 'card' or 'outline', then only the sections you need."
     if result.unit_ids:
         units = [store.get(ctx.conn, "units", uid) for uid in result.unit_ids[:12]]
         text += "\n" + "\n".join(f"  [{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}: "
@@ -238,7 +248,39 @@ def _list_sources(args: dict[str, Any], ctx: ToolContext) -> str:
         n = ctx.conn.execute("SELECT COUNT(*) AS n FROM units WHERE source_id = ?", (r["id"],)).fetchone()["n"]
         ids = r.get("identifiers") or {}
         ref = ids.get("arxiv") and f"arXiv:{ids['arxiv']}" or ids.get("eprint") and f"ePrint {ids['eprint']}" or ""
-        out.append(f"[{r['id']}] {r['title']} ({r.get('year') or '?'}) {ref} [{r.get('format')}] {n} units")
+        card = "card" if r.get("card") else "no card"
+        by = f", {r['provided_by']}" if r.get("provided_by") else ""
+        out.append(f"[{r['id']}] {r['title']} ({r.get('year') or '?'}) {ref} [{r.get('format')}] {n} units, "
+                   f"{card}{by}")
+    return "\n".join(out)
+
+
+def _read_source(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..reading import read_source
+    level = args.get("level") or "card"
+    text = read_source(ctx.conn, args["source_id"], level, section=args.get("section") or "",
+                       purpose=args.get("purpose") or "")
+    ctx.reads.append({"source_id": args["source_id"], "level": level, "section": args.get("section") or "",
+                      "purpose": (args.get("purpose") or "")[:300]})
+    return text
+
+
+def _list_weakness_patterns(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..reading import patterns_for
+    domains = None
+    if args.get("problem_id"):
+        p = store.get(ctx.conn, "problems", args["problem_id"])
+        domains = p.get("domains") if p else None
+    rows = patterns_for(ctx.conn, domains) if domains else store.select(ctx.conn, "weakness_patterns", order="id")
+    if not rows:
+        return "No weakness patterns loaded (mathresearch catalog load)."
+    out = []
+    for r in rows:
+        out.append(f"[{r['id']}] {r['name']} (applies to {', '.join(r.get('applies_to') or [])})\n"
+                   f"  {r['description'].strip()}\n  signature: {r.get('signature') or '-'}\n"
+                   f"  test: {(r.get('test') or '-').strip()}\n"
+                   f"  exploited by: {', '.join(r.get('exploited_by') or []) or '-'}; "
+                   f"examples: {', '.join(r.get('examples') or []) or '-'}")
     return "\n".join(out)
 
 
@@ -350,6 +392,30 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
                                                               "'https://eprint.iacr.org/2024/123'"},
                 "domains": {"type": "string", "description": "comma-separated domain tags for the units"}}},
         ), _ingest_source),
+    "read_source": (
+        ToolSpec(
+            name="read_source",
+            description="Read an ingested paper top-down. level 'card': the paper card (problem, hardness, structure, "
+                        "results, attacks, open problems) or the abstract, plus earlier reading notes and the section "
+                        "list. level 'outline': sections with their units. level 'section': full statements of the "
+                        "units in the named section; needs 'purpose', the decision the section will change. Read "
+                        "down only as far as the question needs.",
+            input_schema={"type": "object", "properties": {
+                "source_id": {"type": "string"},
+                "level": {"type": "string", "enum": ["card", "outline", "section"]},
+                "section": {"type": "string", "description": "part of a section name (level 'section'); else empty"},
+                "purpose": {"type": "string",
+                            "description": "The reading brief: which decision this changes (required for 'section')."}}},
+        ), _read_source),
+    "list_weakness_patterns": (
+        ToolSpec(
+            name="list_weakness_patterns",
+            description="List the weakness patterns (the structural reasons known schemes broke), each with its "
+                        "signature in public data and a computational test. Give a problem id to get only the "
+                        "patterns that apply to its domains. Audit every candidate against them (weakness_audits).",
+            input_schema={"type": "object", "properties": {
+                "problem_id": {"type": "string", "description": "optional; empty for all patterns"}}},
+        ), _list_weakness_patterns),
     "list_sources": (
         ToolSpec(
             name="list_sources",

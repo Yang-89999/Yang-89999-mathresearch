@@ -1,0 +1,171 @@
+# Weakness patterns: the structural reasons known schemes broke. Every candidate problem is audited
+# against the patterns that apply to its domain (status avoided / vulnerable / untested / not_applicable,
+# with an experiment as evidence for 'avoided' and 'vulnerable').
+#
+# applies_to tags: multivariate, codes, lattices, isogenies, group_actions, generic (applies to everything).
+# refs carry years so retrodiction scenarios can drop patterns discovered after their date.
+
+- id: wp_bilinear_io_relations
+  name: Bilinear relations between inputs and outputs
+  applies_to: [multivariate]
+  description: >
+    The public map y = P(x) satisfies identities sum a_ij x_i y_j + sum b_i x_i + sum c_j y_j + d = 0 that hold
+    for every input. They come from a monomial central map such as x^(q^theta + 1) over an extension field, where
+    multiplying the central equation by a suitable Frobenius power gives a relation linear in x for fixed y. Once
+    the relations are known, a ciphertext y gives linear equations in x.
+  signature: the space of such relations, computed from enough (x, P(x)) pairs, has positive dimension
+  test: >
+    Sample about n^2 + 2n + 1 random x, evaluate y = P(x), solve the linear system for the coefficients
+    (a_ij, b_i, c_j, d), report the kernel dimension; repeat for a random quadratic system of the same shape
+    as the control (its kernel should be zero).
+  exploited_by: [atk_patarin_linearization_equations]
+  examples: [Matsumoto-Imai C*]
+  refs: ["Patarin 1995 Crypto"]
+
+- id: wp_low_rank_central_map
+  name: Low rank hidden in the public quadratic forms (MinRank)
+  applies_to: [multivariate]
+  description: >
+    Some linear combination of the public quadratic forms, possibly over an extension field, has rank much lower
+    than n because the central map has few monomials or a layered shape. Finding that combination is a MinRank
+    instance whose rank is small enough to solve, and the low-rank form reveals the secret structure.
+  signature: random combinations have rank near n, but a combination of rank r << n exists
+  test: >
+    Compute the symmetric matrices of the public forms; search for a low-rank combination at small n by
+    Kipnis-Shamir or minors modelling with Groebner bases, and compare the rank profile with a random system.
+  exploited_by: [atk_kipnis_shamir_minrank, atk_minors_modelling, atk_support_minors, atk_beullens_rectangular_minrank]
+  examples: [HFE, Rainbow, GeMSS]
+  refs: ["Kipnis, Shamir 1999 Crypto", "Beullens 2022 Crypto (Rainbow)"]
+
+- id: wp_invariant_subspace
+  name: Common subspace on which all public forms vanish
+  applies_to: [multivariate]
+  description: >
+    A secret subspace O satisfies P(o) = 0 for every o in O (the oil space of Oil and Vinegar). When O is large
+    relative to n it is an invariant subspace of products F_i^{-1} F_j of the public matrices, or it can be found
+    by guessing a vector and solving the remaining linear conditions.
+  signature: the matrices F_i^{-1} F_j share an invariant subspace; P vanishes on a subspace of dimension >= n/2
+  test: >
+    At small n, compute characteristic polynomials of F_i^{-1} F_j and look for common factors and shared
+    invariant subspaces; run a reconciliation search and compare with a random system.
+  exploited_by: [atk_kipnis_shamir_uov, atk_reconciliation, atk_beullens_intersection]
+  examples: [balanced Oil and Vinegar, Rainbow layers]
+  refs: ["Kipnis, Shamir 1998 Crypto (Oil and Vinegar)", "Beullens 2021 Eurocrypt (improved attacks on UOV and Rainbow)"]
+
+- id: wp_low_degree_of_regularity
+  name: Groebner bases fall at a low degree
+  applies_to: [multivariate]
+  description: >
+    The system is not semi-regular: degree falls appear at a degree bounded independently of n (or much lower
+    than for random systems of the same shape), so F4/F5 finish quickly. Typical for central maps of bounded
+    degree over an extension field.
+  signature: first fall degree or degree of regularity below that of a random system with the same n, m, q
+  test: >
+    Run Groebner bases (Sage or msolve) at growing n and record the maximal degree reached; run the same on random
+    systems of the same shape; a gap that grows with n is a vulnerability.
+  exploited_by: [atk_f4_f5_groebner, atk_hybrid_bfp]
+  examples: [HFE with small degree D (HFE challenge 1)]
+  refs: ["Faugere, Joux 2003 Crypto", "Bardet, Faugere, Salvy 2004 (degree of regularity)"]
+
+- id: wp_overdetermined
+  name: More equations than the monomials they span
+  applies_to: [multivariate, lattices]
+  description: >
+    The number of independent equations (given directly, or after multiplying by monomials up to a small degree)
+    reaches the number of monomials, so Gaussian elimination on the monomials solves the system.
+  signature: m close to n(n+1)/2 for quadratic systems, or rank of the Macaulay matrix at low degree near full
+  test: Compare m with the monomial count; run the linearization attack at growing n.
+  exploited_by: [atk_linearization, atk_relinearization, atk_xl, atk_arora_ge]
+  examples: [very overdetermined quadratic systems]
+  refs: ["Lazard 1983 EUROCAL (Groebner bases and Gaussian elimination)", "Kipnis, Shamir 1999 Crypto (relinearization)"]
+
+- id: wp_cheap_orbit_invariant
+  name: Cheap invariants that separate or canonicalise orbits
+  applies_to: [group_actions, codes, multivariate]
+  description: >
+    For an equivalence or isomorphism problem, some efficiently computable invariant (weight enumerator of the
+    hull, rank profile, point counts of an associated variety, a graph built from the tensor) differs between
+    orbits or pins down the hidden map, so the isomorphism is found by matching invariants instead of search.
+  signature: random pairs from different orbits are told apart, or the hidden map is recovered piece by piece
+  test: >
+    For equivalent and non-equivalent random pairs, compute candidate invariants (ranks, hull dimension, point
+    counts, small-structure counts) and measure how often they decide equivalence or fix part of the map.
+  exploited_by: [atk_leon_support_splitting, atk_graph_theoretic_ati, atk_groebner_ip]
+  examples: [code equivalence with a trivial hull, alternating trilinear forms at small parameters]
+  refs: ["Leon 1982 IEEE Trans. Inf. Theory", "Sendrier 2000 IEEE Trans. Inf. Theory (support splitting)"]
+
+- id: wp_abelian_hidden_structure
+  name: Hidden abelian structure that a quantum computer exploits
+  applies_to: [generic]
+  description: >
+    The problem reduces to finding a hidden subgroup or period in an abelian group (Shor), or to a hidden shift
+    for a commutative group action (Kuperberg, subexponential). Commutativity is the usual source.
+  signature: the secret is a period or a shift; the group acting is abelian
+  test: >
+    Write down the group that acts and check whether it is abelian; check whether the inverse problem is a hidden
+    subgroup or hidden shift instance.
+  exploited_by: [atk_shor_hidden_subgroup, atk_kuperberg_hidden_shift]
+  examples: [RSA, discrete logarithms, CSIDH (subexponential)]
+  refs: ["Shor 1994 FOCS", "Kuperberg 2005 SIAM J. Comput."]
+
+- id: wp_auxiliary_public_data
+  name: Public data beyond what the hard problem needs
+  applies_to: [generic]
+  description: >
+    The scheme publishes extra information (images of torsion points in SIDH, hints, partial evaluations) that
+    turns the underlying hard problem into an easier one with more structure.
+  signature: the public key carries more than an instance of the stated hard problem
+  test: >
+    List everything public; for each extra piece, ask which stronger problem it creates and test whether small
+    instances of the stronger problem are easy.
+  exploited_by: [atk_castryck_decru]
+  examples: [SIDH / SIKE]
+  refs: ["Castryck, Decru 2023 Eurocrypt"]
+
+- id: wp_short_generator_structure
+  name: Algebraic structure that shortens the lattice search
+  applies_to: [lattices]
+  description: >
+    The lattice carries extra algebraic structure (a principal ideal with a short generator, a subfield, a
+    known automorphism) that reduces the dimension or lets a known basis of units recover a short vector.
+  signature: the lattice is an ideal of a number ring, or has symmetries beyond what security needs
+  test: Compare BKZ block size needed on the structured lattice with an unstructured lattice of the same size.
+  exploited_by: [atk_lattice_reduction_bkz]
+  examples: [principal-ideal schemes with short generators]
+  refs: ["Cramer, Ducas, Peikert, Regev 2016 Eurocrypt"]
+
+- id: wp_small_noise_support
+  name: Noise from a very small set
+  applies_to: [lattices]
+  description: >
+    When each error term takes only a few values, every sample gives a low-degree polynomial equation in the
+    secret, and with enough samples the system linearizes.
+  signature: the noise support has size d with d small; many samples are available
+  test: Count samples against the monomials of degree d; run linearization at small sizes.
+  exploited_by: [atk_arora_ge]
+  examples: [LWE with binary noise and many samples]
+  refs: ["Arora, Ge 2011 ICALP"]
+
+- id: wp_schur_square_distinguisher
+  name: Structured code detected by its Schur square
+  applies_to: [codes]
+  description: >
+    Algebraic codes (generalised Reed-Solomon, high-rate Goppa, their subcodes) have a component-wise square of
+    unusually small dimension, which distinguishes them from random codes and often leads to key recovery.
+  signature: dim(C * C) is far below min(n, k(k+1)/2)
+  test: Compute dim(C * C) for the public code and for random codes with the same n and k.
+  exploited_by: []
+  examples: [GRS-based McEliece, high-rate Goppa codes]
+  refs: ["Sidelnikov, Shestakov 1992 Discrete Math. Appl.", "Faugere, Gauthier, Otmani, Perret, Tillich 2011 (distinguisher)"]
+
+- id: wp_separable_secret
+  name: Secret that splits into independently checkable parts
+  applies_to: [generic]
+  description: >
+    The secret decomposes into parts whose correctness can be tested separately, or the map factors as a
+    composition that can be met in the middle, so the search cost is a square root or a sum instead of a product.
+  signature: partial guesses can be verified; the map is a composition of two independently keyed steps
+  test: Try to verify a guess of half the secret on its own; measure a meet-in-the-middle search at small sizes.
+  exploited_by: [atk_meet_in_the_middle]
+  examples: [double encryption, decomposable keys]
+  refs: ["Diffie, Hellman 1977 Computer"]

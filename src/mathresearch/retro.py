@@ -90,6 +90,7 @@ PATARIN_1995 = Scenario(
         "problem_id": "prob_retro_cstar",
         "domains": ["multivariate polynomials", "finite fields"],
         "priority": 1.0,
+        "origin": "charter",
     },
     forbidden_terms=["Patarin", "linearization equation", "bilinear relation", "x^(q^theta) y", "Dobbertin"],
     charter={
@@ -170,7 +171,9 @@ def leaks(conn: sqlite3.Connection, scenario: Scenario) -> list[str]:
                         ("problems", ("name", "objects", "forward_map", "distribution", "hidden", "structure",
                                       "quantum_notes", "best_attacks", "refs")),
                         ("attacks", ("name", "exploits", "complexity", "notes", "refs")),
-                        ("sources", ("title",))):
+                        ("weakness_patterns", ("name", "description", "signature", "test", "exploited_by",
+                                               "examples", "refs")),
+                        ("sources", ("title", "abstract", "card"))):
         for row in store.select(conn, table):
             for col in cols:
                 v = row.get(col)

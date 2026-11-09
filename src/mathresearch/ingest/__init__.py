@@ -189,7 +189,8 @@ def ingest_arxiv(conn: sqlite3.Connection, ref: str, workspace: Path, *, domains
     url = ax.ARXIV_ABS.format(id=arxiv_id)
     source_id = _upsert_source(conn, reuse_id, kind="paper", title=title, authors=authors or None, year=year,
                                identifiers=identifiers, url=url, path=str(dest), format=fmt,
-                               venue=", ".join(meta.categories[:3]) if meta else None, domains=domains or None)
+                               venue=", ".join(meta.categories[:3]) if meta else None, domains=domains or None,
+                               abstract=(meta.summary or None) if meta else None)
     if fmt == "latex":
         return ingest_latex_dir(conn, dest, title=title, domains=domains, source_id=source_id)
     if fmt == "pdf":
@@ -232,7 +233,7 @@ def ingest_eprint(conn: sqlite3.Connection, ref: str, workspace: Path, *, domain
     source_id = _upsert_source(conn, reuse_id, kind="paper", title=meta.title, authors=meta.authors or None,
                                year=meta.year, identifiers=meta.identifiers(), url=meta.url,
                                path=str(pdf) if pdf else None, format="pdf" if pdf else "html",
-                               venue="IACR ePrint", domains=domains or None)
+                               venue="IACR ePrint", domains=domains or None, abstract=meta.summary or None)
     if pdf is None:
         units = [LatexUnit(kind="remark", env="abstract", statement=meta.summary, title="Abstract")] \
             if meta.summary else []
