@@ -121,6 +121,9 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
             continue
         if src:
             result["already"].append(e["id"])
+            if src.get("kind") in ("book", "notes") and store.select(
+                    conn, "questions", "kind = 'seed' AND origin_id = ?", (src["id"],), limit=1):
+                reading.seed_reference(conn, src["id"])   # raises a textbook's waiting seed read to the front
             if src.get("kind") in ("book", "notes") and _units(conn, src["id"]) == ingest.MAX_UNITS_PER_SOURCE:
                 try:  # cut at the old 400-unit cap: add the rest, keeping the ids already cited
                     added = ingest.complete_units(conn, src["id"])

@@ -52,20 +52,35 @@ TAG_KEYWORDS = {
 }
 
 SEED_PRIORITY = 0.8
+TEXTBOOK_SEED_PRIORITY = 0.9    # textbooks are the main resource: their seed reads go first
+ABSTRACT_SEED_PRIORITY = 0.6    # an abstract-only paper gives a thin seed read; let full texts go first
+
+
+def seed_priority(src: dict[str, Any]) -> float:
+    if src.get("kind") in ("book", "notes"):
+        return TEXTBOOK_SEED_PRIORITY
+    if src.get("format") == "html":
+        return ABSTRACT_SEED_PRIORITY
+    return SEED_PRIORITY
 MIN_PURPOSE_CHARS = 12
 SECTION_CHARS = 9000
 
 
 # -- sources and seed reads -------------------------------------------------------
 
-def seed_reference(conn: sqlite3.Connection, source_id: str, priority: float = SEED_PRIORITY) -> str:
-    """Open (or return the existing) seed-read question for a reference the operator provided."""
+def seed_reference(conn: sqlite3.Connection, source_id: str, priority: float | None = None) -> str:
+    """Open (or return the existing) seed-read question for a reference the operator provided. Textbooks get
+    the highest priority, abstract-only papers the lowest; an open seed read is raised to its source's level."""
     src = store.get(conn, "sources", source_id)
     if src is None:
         raise KeyError(source_id)
+    priority = seed_priority(src) if priority is None else priority
     existing = store.select(conn, "questions", "kind = 'seed' AND origin_id = ?", (source_id,), limit=1)
     if existing:
-        return existing[0]["id"]
+        q = existing[0]
+        if q["status"] == "open" and (q.get("priority") or 0) < priority and not q.get("runs"):
+            store.update(conn, "questions", q["id"], priority=priority)
+        return q["id"]
     store.update(conn, "sources", source_id, provided_by="operator")
     return store.insert(
         conn, "questions", kind="seed", lane="harvest", status="open", priority=priority,
