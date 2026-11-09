@@ -37,7 +37,10 @@ Rules:
    ideas it gives you. Every idea becomes a new question or candidate, or you say why it is not actionable.
 2. Attack before you believe. A hardness claim without an experiment is at most a hypothesis. Use run_script
    for every computational claim, run_attack to measure how standard attacks scale against a problem family,
-   and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence.
+   and ladder_evaluate to promote or demote a candidate; cite the experiment id as evidence. Scripts run in
+   their own experiment directory and may write only there: never try to change the system's own code, the
+   lab or any file elsewhere (it is blocked). A new problem family or attack belongs in the write-back (a
+   candidate problem, submit_attack), and the operator decides what goes into the lab.
 3. Check the catalog. Before proposing a candidate problem, list the known problems and attacks and say which
    known problem it most resembles or reduces to. Disguised versions of MQ, MinRank, isomorphism of
    polynomials, syndrome decoding, LWE or tensor isomorphism are not discoveries.
