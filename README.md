@@ -65,7 +65,7 @@ Each cycle picks a question (lane chosen by the charter's shares), assembles
 the worker's context from the database, runs the model with tools
 (`search_units`, `open_unit`, `read_source`, `search_literature`, `ingest_source`,
 `list_sources`, `run_script`, `run_attack`, `ladder_evaluate`, `sample_instance`, `submit_attack`,
-`list_catalog`, `list_weakness_patterns`, `read_problem`, `read_question`) and applies its structured
+`list_catalog`, `list_weakness_patterns`, `list_lessons`, `read_problem`, `read_question`) and applies its structured
 write-back: findings with evidence, new questions with what sparked them (a knowledge gap opens a `learn`
 question that blocks its parent), candidate problems, reading notes, paper cards, weakness audits, and the
 rewritten question summary. The
@@ -158,6 +158,32 @@ public data, and others), each with its signature in public data and a computati
 audited against the patterns that apply to their domains; `avoided` and `vulnerable` need an experiment
 id, otherwise the entry is recorded as `untested`, and a verified vulnerability is a negative finding.
 
+## Lessons from the field
+
+`catalog load` also loads thirteen lessons drawn from the published work of Oded Regev, Chris Peikert,
+Leo Ducas, Vadim Lyubashevsky and Shi Bai: back average-case hardness with a reduction, attack the noise
+when noise carries the hardness, justify every piece of algebraic structure, keep a reduction that survives
+the structure, instantiate exactly as analysed, state the assumption precisely, asymptotics are not
+security, classification problems need failing invariants, design out statistical leakage, keep a knob that
+scales security, small secrets need their own attacks, measure attacks rather than only model them, and
+quantum algorithms keep improving. Each lesson is our paraphrase with its references and a concrete check;
+workers are told to argue from the papers and never to speak for the authors.
+
+The lessons reach the workers in two ways. Every worker prompt carries them as a short block. And when a
+candidate reaches a new ladder status (from `reviews.from_status`, default `well_defined`), the reflection
+step opens a **review** in the deepen lane: the candidate is checked against one expert's lessons, reading
+their papers where a lesson needs exact content, with a finding per lesson. Experts rotate per candidate,
+preferring those whose lessons fit its domains; `reviews.max_per_reflection` caps how many open at once.
+
+```bash
+mathresearch --dir ~/research lessons list --expert Peikert
+mathresearch --dir ~/research lessons ingest            # fetch the cited papers and queue seed reads
+```
+
+`lessons ingest` fetches the eleven cited papers (arXiv gives full LaTeX; IACR ePrint gives title and
+abstract, so download the PDFs you care about and run `ingest file`). Retrodiction scenarios drop every
+lesson published after their date.
+
 ## Reflection and the world digest
 
 Every `reflect_every_runs` runs (charter; default 20) the loop pauses to
@@ -243,6 +269,7 @@ thread alone picks questions, checks the caps and runs the reflection step.
 - [x] PR 6: submitted attacks, hidden-knowledge scenarios, retrodiction test `patarin_1995`
 - [x] PR 7: cost accounting, spending caps, parallel workers
 - [x] PR 8: purpose-driven reading (seed reads, levelled reading, reading notes, question origins, weakness patterns)
+- [x] PR 9: lessons from experts' published work in every prompt, timely expert reviews of candidates
 - [ ] More families (HFE, UOV, MinRank, syndrome decoding) and attacks (MinRank, msolve Gröbner)
 
 The design review and build plan live in the project's design document.

@@ -18,6 +18,7 @@ from . import pricing, store, writeback
 from .charter import Charter
 from .context import system_prompt, user_prompt
 from .providers.base import ChatRequest, Message, Provider, TextBlock, ToolResultBlock, Usage
+from . import lessons
 from .tools import registry
 
 EFFORT_BY_LANE = {"harvest": "low", "deepen": "high", "open": "medium"}
@@ -59,7 +60,7 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                                hidden_attacks=frozenset(charter.hidden_attacks))
     usage = Usage()
     messages = [Message(role="user", content=[TextBlock(user_prompt(conn, question))])]
-    system = system_prompt(charter, lane)
+    system = system_prompt(charter, lane, lessons.prompt_block(conn))
     error: str | None = None
     data: dict[str, Any] | None = None
     steps = 0

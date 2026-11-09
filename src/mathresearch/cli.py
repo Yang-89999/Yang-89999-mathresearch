@@ -10,6 +10,8 @@
     mathresearch ingest fetch 2301.00001   download papers and split them into knowledge units
     mathresearch ingest file paper.tex     ingest a local LaTeX/PDF/text file
     mathresearch ingest seed SOURCE_ID     queue a seed read for a source already ingested
+    mathresearch lessons list              lessons from experts' published work (after catalog load)
+    mathresearch lessons ingest            fetch the papers behind the lessons and queue seed reads
     mathresearch units search 'Groebner'   search the knowledge base
 """
 
@@ -189,8 +191,9 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
     conn = db.connect(_workspace(args) / DB_FILE)
     counts = catalog.load(conn)
     totals = db.table_counts(conn)
-    print(f"inserted {counts['problems']} problems and {counts['attacks']} attacks "
-          f"(catalog now {totals['problems']} problems, {totals['attacks']} attacks)")
+    print(f"inserted {counts['problems']} problems, {counts['attacks']} attacks, {counts['weakness_patterns']} "
+          f"weakness patterns and {counts['lessons']} expert lessons (catalog now {totals['problems']} problems, "
+          f"{totals['attacks']} attacks, {totals['weakness_patterns']} patterns, {totals['lessons']} lessons)")
     return 0
 
 
@@ -227,6 +230,47 @@ def cmd_ingest_seed(args: argparse.Namespace) -> int:
             continue
         print(f"{sid}: seed read {reading.seed_reference(conn, sid)}")
     return status
+
+
+def cmd_lessons_list(args: argparse.Namespace) -> int:
+    from . import lessons
+    conn = db.connect(_workspace(args) / DB_FILE)
+    rows = [r for r in lessons.all_lessons(conn) if not args.expert or args.expert in (r.get("experts") or [])]
+    if not rows:
+        print("no lessons loaded; run 'mathresearch catalog load'", file=sys.stderr)
+        return 1
+    for r in rows:
+        print(lessons.render(r) + "\n")
+    return 0
+
+
+def cmd_lessons_ingest(args: argparse.Namespace) -> int:
+    """Fetch the papers the lessons cite (ePrint: metadata and abstract; arXiv: full source) as references."""
+    from . import ingest, lessons
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    refs: dict[str, None] = {}
+    for r in lessons.all_lessons(conn):
+        if args.expert and args.expert not in (r.get("experts") or []):
+            continue
+        for ref in r.get("sources") or []:
+            refs.setdefault(ref, None)
+    if not refs:
+        print("no lesson sources to fetch; run 'mathresearch catalog load' first", file=sys.stderr)
+        return 1
+    failures = 0
+    for i, ref in enumerate(refs):
+        if i:
+            ingest.ax.polite_sleep(args.delay)
+        try:
+            res = ingest.ingest_reference(conn, ref, ws, delay=args.delay)
+        except Exception as exc:  # report and continue
+            print(f"{ref}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        print(res.summary())
+        _seed(conn, ws, res.source_id, args)
+    return 1 if failures == len(refs) else 0
 
 
 def cmd_ingest_fetch(args: argparse.Namespace) -> int:
@@ -468,6 +512,17 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("query")
     c.add_argument("--max", type=int, default=10)
     c.set_defaults(func=cmd_ingest_search)
+
+    s = sub.add_parser("lessons", help="lessons from PQC experts' published work")
+    lsub = s.add_subparsers(dest="lessons_command", required=True)
+    c = lsub.add_parser("list", help="show the lessons, their checks and references")
+    c.add_argument("--expert", help="e.g. Peikert")
+    c.set_defaults(func=cmd_lessons_list)
+    c = lsub.add_parser("ingest", help="fetch the papers behind the lessons and queue seed reads")
+    c.add_argument("--expert", help="only this expert's papers")
+    c.add_argument("--delay", type=float, default=3.0)
+    c.add_argument("--no-seed", action="store_true", help="index only; do not queue seed reads")
+    c.set_defaults(func=cmd_lessons_ingest)
 
     s = sub.add_parser("units", help="knowledge-unit commands")
     us = s.add_subparsers(dest="units_command", required=True)

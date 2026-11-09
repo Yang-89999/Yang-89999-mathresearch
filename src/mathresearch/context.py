@@ -119,8 +119,10 @@ tried. A survey is useful only if it yields candidates or attack ideas; emit the
 }
 
 
-def system_prompt(charter: Charter, lane: str) -> str:
-    return charter.to_prompt() + "\n" + METHODOLOGY + LANE_INSTRUCTIONS.get(lane, "")
+def system_prompt(charter: Charter, lane: str, lessons: str = "") -> str:
+    """Stable-first: charter, methodology and lessons are identical for every run; lane text per lane."""
+    return (charter.to_prompt() + "\n" + METHODOLOGY + ("\n" + lessons if lessons else "")
+            + LANE_INSTRUCTIONS.get(lane, ""))
 
 
 def user_prompt(conn: sqlite3.Connection, question: dict[str, Any], max_units: int = 8) -> str:

@@ -1,0 +1,182 @@
+# Lessons from the published work of Oded Regev, Chris Peikert, Leo Ducas, Vadim Lyubashevsky and Shi Bai.
+#
+# Each lesson is our paraphrase of a principle their papers demonstrate, not a quotation and not their
+# opinion on our candidates. Workers see the lessons in every prompt and get timely reviews of candidates
+# through them; they must argue from what the cited papers say, never speak for the authors.
+#
+# applies_to tags as for weakness patterns (generic applies to everything).
+# sources: ePrint ids or arXiv ids that `mathresearch lessons ingest` fetches as references.
+# refs carry years so retrodiction scenarios drop lessons published after their date.
+
+- id: ls_worst_to_average
+  experts: [Regev]
+  title: Back average-case hardness with a reduction
+  applies_to: [generic]
+  lesson: >
+    LWE became a foundation because random instances are provably as hard as worst-case lattice problems
+    (quantumly). An average-case assumption with no reduction from anything well studied is a guess.
+  check: >
+    State which reduction, if any, connects the candidate's random instances to a worst-case or well-studied
+    problem. If none, say so plainly and test more attacks before any promotion.
+  refs: ["Regev 2005 STOC; J. ACM 2009 (On lattices, learning with errors, random linear codes, and cryptography)"]
+  sources: []
+
+- id: ls_noise_as_hardness
+  experts: [Regev]
+  title: When noise carries the hardness, attack the noise
+  applies_to: [lattices, codes, multivariate]
+  lesson: >
+    Without its error term LWE is Gaussian elimination: the noise is the whole difficulty. Small, sparse or
+    structured noise invites algebraic (Arora-Ge), combinatorial (BKW) and decoding attacks.
+  check: >
+    If removing a perturbation makes the candidate easy, measure attacks that exploit the noise's size, support
+    and number of samples at growing sizes.
+  refs: ["Regev 2005 STOC; J. ACM 2009", "Arora, Ge 2011 ICALP"]
+  sources: []
+
+- id: ls_structure_needs_justification
+  experts: [Ducas, Peikert, Regev]
+  title: Every piece of structure must be justified
+  applies_to: [generic]
+  lesson: >
+    Principal ideals with short generators in cyclotomic rings looked lattice-hard but fall to decoding in the
+    log-unit lattice plus a quantum principal-ideal algorithm. Structure added for efficiency can create a
+    shortcut that the unstructured problem lacks.
+  check: >
+    List each algebraic structure the candidate adds (ring, symmetry, special generator, small field) and,
+    for each, test or argue why it gives no shortcut; compare with the unstructured version.
+  refs: ["Cramer, Ducas, Peikert, Regev 2016 Eurocrypt (Recovering short generators of principal ideals in cyclotomic rings)"]
+  sources: ["2015/313"]
+
+- id: ls_quantum_keeps_improving
+  experts: [Regev]
+  title: Quantum algorithms keep improving
+  applies_to: [generic]
+  lesson: >
+    Shor's algorithm was improved decades later (Regev 2023 reduces the gate count for factoring). Hidden
+    periodicity or abelian structure is a fatal flaw, not a parameter question.
+  check: >
+    Rule out hidden abelian structure explicitly (weakness pattern wp_abelian_hidden_structure) before
+    discussing parameters.
+  refs: ["Regev 2023 (An efficient quantum factoring algorithm, arXiv:2308.06572)"]
+  sources: ["arXiv:2308.06572"]
+
+- id: ls_problem_vs_scheme
+  experts: [Peikert]
+  title: State the assumption precisely and know its variants
+  applies_to: [generic]
+  lesson: >
+    Lattice cryptography separates the hard problem (search or decision, secret and error distributions,
+    number of samples) from the schemes built on it, and tracks the reductions between variants.
+  check: >
+    Write the candidate as a precise assumption: search or decision, every distribution, how many samples or
+    instances an attacker sees. Say which variant the experiments test.
+  refs: ["Peikert 2016 (A decade of lattice cryptography, Found. Trends Theor. Comput. Sci.)"]
+  sources: ["2015/939"]
+
+- id: ls_instantiate_as_analysed
+  experts: [Peikert]
+  title: Instantiate exactly as analysed
+  applies_to: [lattices, generic]
+  lesson: >
+    Several proposed Ring-LWE instantiations were broken because their error was too small or badly shaped
+    for the ring, outside what the hardness analysis covers.
+  check: >
+    Sample instances exactly as the analysis assumes, and run the attacks again on the distribution actually
+    used if it differs (smaller noise, special ring, structured secret).
+  refs: ["Peikert 2016 SCN (How (not) to instantiate Ring-LWE)"]
+  sources: ["2016/351"]
+
+- id: ls_structure_with_reduction
+  experts: [Lyubashevsky, Peikert, Regev]
+  title: Buy efficiency with structure that keeps a reduction
+  applies_to: [lattices, generic]
+  lesson: >
+    Ring-LWE gains efficiency from ideal lattices while keeping a worst-case reduction for that class of
+    lattices. Structure is acceptable when the hardness argument survives it.
+  check: >
+    When the candidate restricts a general problem to a structured subclass, say whether any hardness evidence
+    still applies to the subclass, and test the subclass directly.
+  refs: ["Lyubashevsky, Peikert, Regev 2010 Eurocrypt; J. ACM 2013 (On ideal lattices and learning with errors over rings)"]
+  sources: ["2012/230"]
+
+- id: ls_concrete_cost
+  experts: [Ducas]
+  title: Asymptotics are not security
+  applies_to: [generic]
+  lesson: >
+    Concrete attack costs move with algorithmic progress: lattice sieving gained "dimensions for free". Security
+    claims need the cost of the best current attack at the proposed sizes.
+  check: >
+    For any candidate past the first filters, estimate the best attack's concrete cost at the proposed sizes
+    from measured curves, and say how much progress would break it.
+  refs: ["Ducas 2018 Eurocrypt (Shortest vector from lattice sieving: a few dimensions for free)"]
+  sources: ["2017/999"]
+
+- id: ls_classical_math_to_assumption
+  experts: [Ducas]
+  title: Classification problems can become assumptions, if invariants fail
+  applies_to: [group_actions, lattices, generic]
+  lesson: >
+    The lattice isomorphism problem was turned into cryptography through quadratic forms and remarkable
+    lattices; its security needs arithmetic invariants (genus and others) not to decide or solve it.
+  check: >
+    For an isomorphism or classification candidate, list the computable invariants of the objects and test on
+    random pairs whether any of them distinguishes orbits or recovers the map (weakness pattern
+    wp_cheap_orbit_invariant).
+  refs: ["Ducas, van Woerden 2022 Eurocrypt (On the lattice isomorphism problem, quadratic forms, remarkable lattices, and cryptography)"]
+  sources: ["2021/1332"]
+
+- id: ls_remove_leakage
+  experts: [Lyubashevsky]
+  title: Design out statistical leakage
+  applies_to: [generic]
+  lesson: >
+    Lattice signatures without trapdoors use rejection sampling (Fiat-Shamir with aborts) so that published
+    signatures are independent of the secret. Earlier lattice signatures (GGH, NTRUSign) leaked their keys
+    through the distribution of their signatures.
+  check: >
+    Collect many public outputs of the candidate scheme and test whether their distribution depends on the
+    secret; if it does, design rejection or masking before anything else.
+  refs: ["Lyubashevsky 2012 Eurocrypt (Lattice signatures without trapdoors)",
+         "Nguyen, Regev 2006 Eurocrypt (Learning a parallelepiped: cryptanalysis of GGH and NTRU signatures)"]
+  sources: ["2011/537"]
+
+- id: ls_security_knob
+  experts: [Lyubashevsky, Ducas]
+  title: Keep a knob that scales security
+  applies_to: [generic]
+  lesson: >
+    Kyber and Dilithium use module lattices so that security scales by changing the module rank while the ring
+    and the code stay the same.
+  check: >
+    Identify the parameter that scales hardness without changing the algebra, and measure attack cost along it.
+  refs: ["Bos, Ducas, Kiltz, Lepoint, Lyubashevsky et al. 2018 EuroS&P (CRYSTALS-Kyber)",
+         "Ducas, Kiltz, Lepoint, Lyubashevsky et al. 2018 TCHES (CRYSTALS-Dilithium)"]
+  sources: ["2017/634", "2017/633"]
+
+- id: ls_small_secrets
+  experts: [Bai]
+  title: Small secrets need their own attacks
+  applies_to: [lattices, codes, multivariate]
+  lesson: >
+    Binary or very small secrets save space but enable attacks that generic estimates miss: lattice decoding
+    with embedding and rescaling breaks binary LWE at sizes that look safe otherwise.
+  check: >
+    When secrets or errors are small for efficiency, run attacks that exploit smallness (rescaled embedding,
+    hybrid guessing) and compare with uniform secrets of the same size.
+  refs: ["Bai, Galbraith 2014 ACISP (Lattice decoding attacks on binary LWE)"]
+  sources: ["2013/839"]
+
+- id: ls_measure_not_model
+  experts: [Bai]
+  title: Measure attacks, do not only model them
+  applies_to: [generic]
+  lesson: >
+    BKZ deviates from the geometric series assumption at the head of the basis; measurements and simulations
+    calibrate estimates that models alone get wrong.
+  check: >
+    Back every cost estimate with measured runs at feasible sizes, and report where the measured curve departs
+    from the model.
+  refs: ["Bai, Stehle, Wen 2018 Asiacrypt (Measuring, simulating and exploiting the head concavity phenomenon in BKZ)"]
+  sources: ["2018/856"]

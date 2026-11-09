@@ -17,6 +17,7 @@ PREFIXES = {
     "digest": "dg",
     "reading_note": "rn",
     "weakness_pattern": "wp",
+    "lesson": "ls",
 }
 
 

@@ -1,4 +1,4 @@
-"""Seed catalogs of known problems, attacks and weakness patterns, loaded into the database."""
+"""Seed catalogs of known problems, attacks, weakness patterns and expert lessons, loaded into the database."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def load(conn: sqlite3.Connection, max_year: int | None = None,
     knowledge of an earlier date); ``hidden_attacks`` drops attacks by implementation name and
     removes them from every problem's best_attacks list.
     """
-    inserted = {"problems": 0, "attacks": 0, "weakness_patterns": 0}
+    inserted = {"problems": 0, "attacks": 0, "weakness_patterns": 0, "lessons": 0}
     hidden = set(hidden_attacks or ())
     skipped_attack_ids = set()
     attack_rows = []
@@ -87,4 +87,16 @@ def load(conn: sqlite3.Connection, max_year: int | None = None,
             inserted["weakness_patterns"] += 1
         else:
             store.update(conn, "weakness_patterns", row["id"], **{k: v for k, v in row.items() if k != "id"})
+    for row in _load_yaml("expert_lessons.yaml"):
+        row = dict(row)
+        year = entry_year(row)
+        if max_year is not None and year is not None and year > max_year and row["id"] not in (always_keep or ()):
+            continue
+        _trim_refs(row, max_year)
+        row["check_text"] = row.pop("check", None)
+        if store.get(conn, "lessons", row["id"]) is None:
+            store.insert(conn, "lessons", **row)
+            inserted["lessons"] += 1
+        else:
+            store.update(conn, "lessons", row["id"], **{k: v for k, v in row.items() if k != "id"})
     return inserted

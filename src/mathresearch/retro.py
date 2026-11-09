@@ -173,6 +173,7 @@ def leaks(conn: sqlite3.Connection, scenario: Scenario) -> list[str]:
                         ("attacks", ("name", "exploits", "complexity", "notes", "refs")),
                         ("weakness_patterns", ("name", "description", "signature", "test", "exploited_by",
                                                "examples", "refs")),
+                        ("lessons", ("title", "lesson", "check_text", "refs")),
                         ("sources", ("title", "abstract", "card"))):
         for row in store.select(conn, table):
             for col in cols:

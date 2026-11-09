@@ -284,6 +284,22 @@ def _list_weakness_patterns(args: dict[str, Any], ctx: ToolContext) -> str:
     return "\n".join(out)
 
 
+def _list_lessons(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lessons import all_lessons, lessons_for, render
+    expert = (args.get("expert") or "").strip() or None
+    domains = None
+    if args.get("problem_id"):
+        p = store.get(ctx.conn, "problems", args["problem_id"])
+        domains = p.get("domains") if p else None
+    if domains:
+        rows = lessons_for(ctx.conn, domains, expert)
+    else:
+        rows = [r for r in all_lessons(ctx.conn) if not expert or expert in (r.get("experts") or [])]
+    if not rows:
+        return "No lessons match (mathresearch catalog load loads them)."
+    return "\n".join(render(r) for r in rows)
+
+
 def _family_kwargs(args: dict[str, Any]) -> dict[str, Any]:
     kw: dict[str, Any] = {}
     if args.get("p"):
@@ -416,6 +432,16 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
             input_schema={"type": "object", "properties": {
                 "problem_id": {"type": "string", "description": "optional; empty for all patterns"}}},
         ), _list_weakness_patterns),
+    "list_lessons": (
+        ToolSpec(
+            name="list_lessons",
+            description="List the lessons drawn from the published work of PQC experts (Regev, Peikert, Ducas, "
+                        "Lyubashevsky, Bai): each principle, the check to run, the references and the ePrint/arXiv "
+                        "ids to ingest. Filter by expert name and/or by a problem's domains.",
+            input_schema={"type": "object", "properties": {
+                "expert": {"type": "string", "description": "e.g. 'Peikert'; empty for all"},
+                "problem_id": {"type": "string", "description": "only lessons for this problem's domains; or empty"}}},
+        ), _list_lessons),
     "list_sources": (
         ToolSpec(
             name="list_sources",

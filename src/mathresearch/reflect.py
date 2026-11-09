@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import pricing, reading, store
+from . import lessons, pricing, reading, store
 from .charter import Charter
 
 STALE_RUNS = 6         # an open question with this many runs loses priority
@@ -44,6 +44,7 @@ def reflect(conn: sqlite3.Connection, charter: Charter, workspace: Path | None =
     actions += _decay_or_abandon_stale(conn)
     actions += _reseed_starved_domains(conn, charter)
     actions += _balance_origins(conn, charter)
+    actions += lessons.schedule_reviews(conn, charter)
     stats = collect_stats(conn, charter)
     digest = render_digest(stats, actions)
     digest_id = store.insert(conn, "digests", run_count=stats["runs"]["total"], trigger=trigger,
@@ -238,6 +239,7 @@ def collect_stats(conn: sqlite3.Connection, charter: Charter) -> dict[str, Any]:
                       "starved_domains": starved},
         "knowledge": {"sources": counts["sources"], "units": counts["units"], "experiments": counts["experiments"],
                       "experiment_kinds": dict(exp_kinds), "reading_notes": counts["reading_notes"]},
+        "reviews": lessons.review_stats(conn),
         "origins": {"open": open_mix, "all": all_mix,
                     "prior_share_open": round(open_mix.get("prior", 0) / n_ideas, 3) if n_ideas else 0.0,
                     "max_prior_share": charter.reading.max_prior_share},
@@ -295,6 +297,11 @@ def render_digest(stats: dict[str, Any], actions: list[str]) -> str:
     if o["open"]:
         lines.append("Open questions sparked by: " + ", ".join(f"{k} {n}" for k, n in sorted(o["open"].items()))
                      + f" (prior-only share {o['prior_share_open']:.2f}, charter max {o['max_prior_share']:.2f})")
+    rv = stats.get("reviews") or {"total": 0}
+    if rv["total"]:
+        lines.append(f"Expert reviews: {rv['total']} ("
+                     + ", ".join(f"{k} {n}" for k, n in sorted(rv["by_status"].items())) + "); by expert: "
+                     + ", ".join(f"{k} {n}" for k, n in sorted(rv["by_expert"].items())))
     if refs["useful"] or refs["unread"] or refs["barren"]:
         lines += ["", "## References"]
         lines += [f"- [{x['id']}] {x['title']}: {x['questions']} questions, {x['candidates']} candidates, "
