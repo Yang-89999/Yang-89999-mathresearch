@@ -363,3 +363,43 @@ def test_text_heuristic_ignores_prose_references_and_handles_pdf_layout():
     assert [(u.kind, u.label) for u in units] == [("lemma", "Lemma 2.2"), ("theorem", "Theorem 3")]
     assert units[0].statement.startswith("The polynomial f") and units[0].statement.endswith("= 1.")
     assert units[1].statement == "Every C* public key admits n linearization equations."
+
+
+def test_http_fetch_retries_transient_failures_only(monkeypatch):
+    import http.client
+    import urllib.error
+
+    from mathresearch.ingest import arxiv as ax
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    calls, waits = [], []
+
+    def flaky(req, timeout):
+        calls.append(req.full_url)
+        if len(calls) < 3:
+            raise http.client.IncompleteRead(b"partial", 100)
+        return Resp()
+
+    monkeypatch.setattr(ax.urllib.request, "urlopen", flaky)
+    assert ax.http_fetch("https://arxiv.org/x", sleep=waits.append) == b"ok"
+    assert len(calls) == 3 and waits == [ax.RETRY_WAIT, ax.RETRY_WAIT * 2]
+
+    def forbidden(req, timeout):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    calls.clear()
+    monkeypatch.setattr(ax.urllib.request, "urlopen", forbidden)
+    import pytest
+    with pytest.raises(urllib.error.HTTPError):
+        ax.http_fetch("https://eprint.iacr.org/x.pdf", sleep=waits.append)
+    assert len(calls) == 1   # a refusal is not retried
