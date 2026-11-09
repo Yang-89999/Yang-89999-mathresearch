@@ -165,3 +165,21 @@ def test_textbooks_keep_all_units_and_old_truncations_are_completed(tmp_path, mo
     after = [u["id"] for u in store.select(conn, "units", "source_id = ?", (sid,), order="rowid")]
     assert after[:400] == first[:400] and len(after) == 460 and "cox_little_oshea_iva" in res["completed"]
     assert any("added the 60 units" in l for l in lines)
+
+
+def test_textbook_seed_reads_go_first(tmp_path, monkeypatch):
+    from mathresearch import reading
+    monkeypatch.setattr(ingest.ax, "polite_sleep", lambda s: None)
+    conn = db.connect(tmp_path / "r.db")
+    paper = store.insert(conn, "sources", kind="paper", title="A paper", format="latex")
+    abstract = store.insert(conn, "sources", kind="paper", title="An ePrint paper", format="html")
+    book = store.insert(conn, "sources", kind="book", title="Ideals, Varieties, and Algorithms", format="pdf",
+                        identifiers={"library": "cox_little_oshea_iva"})
+    qs = {sid: reading.seed_reference(conn, sid) for sid in (paper, abstract, book)}
+    order = [q["id"] for q in store.open_questions(conn, lane="harvest")]
+    assert order == [qs[book], qs[paper], qs[abstract]]
+    # a textbook seed queued earlier at the old priority is raised by the next library fetch
+    store.update(conn, "questions", qs[book], priority=0.8)
+    library.fetch(conn, tmp_path, topic="computational_algebra", report=lambda s: None,
+                  fetch_fn=lambda url: (_ for _ in ()).throw(OSError("offline")))
+    assert store.get(conn, "questions", qs[book])["priority"] == reading.TEXTBOOK_SEED_PRIORITY
