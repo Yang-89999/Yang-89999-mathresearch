@@ -10,7 +10,7 @@ def test_default_charter_loads_and_normalises_lanes(tmp_path):
     c = Charter.load(p)
     assert "post-quantum" in c.objective
     assert len(c.domains) == 7
-    assert "dynamical systems" in c.excluded_domains[0]
+    assert c.excluded_domains == [] and "Excluded" not in c.to_prompt()
     assert abs(sum(c.lanes.values()) - 1.0) < 1e-9
     assert c.lanes["harvest"] > c.lanes["deepen"] > c.lanes["open"]
 
@@ -20,7 +20,8 @@ def test_prompt_rendering_mentions_target_properties():
     text = c.to_prompt()
     assert text.startswith("# Research charter")
     assert "trapdoor" in text and "group action" in text
-    assert "Excluded as initial directions" in text
+    assert "Excluded as initial directions" not in text
+    assert "Excluded as initial directions" in Charter.from_dict({**yaml.safe_load(DEFAULT_CHARTER), "excluded_domains": ["x"]}).to_prompt()
 
 
 def test_missing_domains_rejected():

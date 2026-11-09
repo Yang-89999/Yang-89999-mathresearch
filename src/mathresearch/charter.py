@@ -226,9 +226,14 @@ domains:
   - category theory and higher algebra (categorical invariants, moduli, derived structures)
   - combinatorics and discrete mathematics (graphs, codes, discrete optimization, counting)
 
-excluded_domains:
-  - dynamical systems (not an initial cryptographic research direction)
-
+# What a candidate problem should offer. Each flag becomes a line of every
+# worker prompt; set one to false if your goal does not need it.
+#   average_case: hard on random instances (crypto samples keys at random)
+#   efficient_verification: a proposed solution can be checked quickly
+#   wants_trapdoor: a secret makes inversion easy (public-key encryption, signatures)
+#   wants_group_action: a group acting on a set (key exchange, as in isogenies)
+#   wants_homomorphism: structure preserved under operations (not needed at first)
+#   finite_field_formulation: instances live over finite fields or finite structures
 target:
   average_case: true
   efficient_verification: true
