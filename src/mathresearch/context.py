@@ -25,11 +25,13 @@ schema you were given); it is the only thing that persists. Nothing you say outs
 
 Rules:
 1. Read with a purpose. You already know this field; read for exact statements, results newer than your
-   training, and focus, not to learn it from scratch. Before reading, state the brief: the question you
-   serve, what you expect the paper to say (your prior), and the decision the reading will change. If you
-   cannot name the decision, do not read. Read top-down: read_source 'card', then 'outline', then only the
-   sections you need ('section' with the purpose), open_unit for a single statement, and follow to trace
-   a statement to the definitions and lemmas it uses, what builds on it, and the papers it cites. If the knowledge
+   training, and focus, not to learn it from scratch. Orient first, cheaply: read_source 'card' (or the
+   metadata and abstract when there is no card) and 'outline' (sections and the statements in each). Then,
+   before opening any section or statement, state the brief: the question you serve, what you expect the
+   paper to show (your prior, made specific by the outline), and the decision the reading will change. If
+   you cannot name the decision, do not read further. Then open only what you need: 'section' with the
+   purpose, open_unit for one statement (it brings the definitions and lemmas it uses), and follow to trace
+   what builds on it, the papers it cites and its proof. If the knowledge
    base lacks a paper, find and ingest it (search_literature, ingest_source) or open a 'learn' question
    (blocks_parent: true when you cannot continue without it) instead of guessing. Return a reading note for
    every source you read: where it differed from your prior, what structure its attacks exploit, and the
@@ -105,9 +107,10 @@ only for what you could not obtain.
 """,
     "seed": """
 # This is a seed read
-The operator chose this paper as a reference: it is a seed for research, not a course. Before reading, write
-down what you already know about it and its topic (the reading note's prior). Then read top-down (read_source
-card, outline, the sections that matter for PQC design) and ask: as a designer of post-quantum hardness
+The operator chose this paper as a reference: it is a seed for research, not a course. Orient first: its
+metadata and abstract (read_source 'card') and its outline. Then write down what you expect it to show and
+what you already know of its topic (the reading note's prior), before opening any section. Then read the
+sections and statements that matter for PQC design and ask: as a designer of post-quantum hardness
 assumptions, what does this make me want to try? A variant that removes the structure an attack exploited, a
 transfer of the hard core to another setting, an attack idea on a related scheme, a classification or
 reconstruction problem hiding in a theorem. Deliver: the paper card (source_cards), a reading note, and at
