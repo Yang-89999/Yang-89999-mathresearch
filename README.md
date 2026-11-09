@@ -63,10 +63,12 @@ mathresearch --dir ~/research run --cycles 5 --provider openai --model gpt-5
 
 Each cycle picks a question (lane chosen by the charter's shares), assembles
 the worker's context from the database, runs the model with tools
-(`search_units`, `open_unit`, `search_literature`, `ingest_source`, `run_script`,
-`run_attack`, `ladder_evaluate`, `list_catalog`, `read_problem`, `read_question`) and applies its structured write-back: findings with
-evidence, new questions (a knowledge gap opens a `learn` question that blocks
-its parent), candidate problems, and the rewritten question summary. The
+(`search_units`, `open_unit`, `read_source`, `search_literature`, `ingest_source`,
+`list_sources`, `run_script`, `run_attack`, `ladder_evaluate`, `sample_instance`, `submit_attack`,
+`list_catalog`, `list_weakness_patterns`, `read_problem`, `read_question`) and applies its structured
+write-back: findings with evidence, new questions with what sparked them (a knowledge gap opens a `learn`
+question that blocks its parent), candidate problems, reading notes, paper cards, weakness audits, and the
+rewritten question summary. The
 conversation is discarded; only the write-back persists. `--provider fake`
 exists for offline tests.
 
@@ -123,6 +125,39 @@ Workers reach the same code through the `search_literature`,
 `ingest_source` and `list_sources` tools; a `learn` question is expected to
 end with the needed material indexed and a finding per source.
 
+## Purpose-driven reading
+
+The models already know the field. Reading is for exact statements, results newer than the model's
+training, and focus; it is a catalyst, not a course. Three rules follow.
+
+**Your references are seeds.** Every paper you ingest with `ingest fetch` or `ingest file` gets a *seed
+read*: a question that reads it as a PQC designer ("what does this make me want to try?"). It must write
+the paper's card and open at least one question or candidate sparked by the paper, or record a negative
+finding saying why the paper suggests nothing; it cannot close otherwise. `--no-seed` indexes a paper
+without queuing one, and `ingest seed SOURCE_ID` queues one later. Papers the workers fetch themselves are
+indexed but not seeded.
+
+**Read top-down, with a brief.** `read_source` serves three levels: the paper card (L0: problem, hardness
+assumption, structure, results, attacks, parameters, open problems, relevance), the outline (L1: sections
+and their units) and full sections (L2). A section is served only with a `purpose`, the decision the
+reading will change. Every source read in a run comes back as a reading note: the worker's prior, what
+was confirmed, what surprised it, the structure the paper's attacks exploit, the limits the authors admit,
+and the ideas it gives. Ideas become questions or candidates.
+
+**Every question records its origin.** A new question or candidate says what sparked it: a reference
+(source id), an experiment (experiment id), or the model's prior. Ids are checked; an unknown id counts as
+prior. When prior-only ideas exceed `reading.max_prior_share` of the open ideas while grounded ones wait,
+the reflection step lowers their priority. The digest shows the origin mix and which of your references
+led to questions, candidates and experiments, which are still waiting for their seed read, and which led
+nowhere.
+
+**Weakness patterns.** `catalog load` also loads twelve weakness patterns, the structural reasons known
+schemes broke (bilinear input-output relations, low rank hidden in the public forms, a common vanishing
+subspace, an early Groebner degree fall, cheap orbit invariants, hidden abelian structure, auxiliary
+public data, and others), each with its signature in public data and a computational test. Candidates are
+audited against the patterns that apply to their domains; `avoided` and `vulnerable` need an experiment
+id, otherwise the entry is recorded as `untested`, and a verified vulnerability is a negative finding.
+
 ## Reflection and the world digest
 
 Every `reflect_every_runs` runs (charter; default 20) the loop pauses to
@@ -164,6 +199,13 @@ Patarin's attack from the tools, and opens one `attack` question on C*.
 n = 13 with polynomial-like growth, and warns if any forbidden term leaked
 into the seeded knowledge.
 
+What this test does and does not show: the model has almost certainly seen
+Patarin's 1995 paper in training. Hiding it from the knowledge base and the
+lab cannot hide it from the model's weights, so passing shows that the
+pipeline can turn an idea into a verified attack, not that the system can
+discover one. A discovery test needs a result published after the model's
+training cutoff.
+
 ## Spending caps and parallel workers
 
 Every run records its tokens and its cost in dollars. Claude model prices
@@ -200,6 +242,7 @@ thread alone picks questions, checks the caps and runs the reflection step.
 - [x] PR 5: reflection step, agenda hygiene and the world digest
 - [x] PR 6: submitted attacks, hidden-knowledge scenarios, retrodiction test `patarin_1995`
 - [x] PR 7: cost accounting, spending caps, parallel workers
+- [x] PR 8: purpose-driven reading (seed reads, levelled reading, reading notes, question origins, weakness patterns)
 - [ ] More families (HFE, UOV, MinRank, syndrome decoding) and attacks (MinRank, msolve Gröbner)
 
 The design review and build plan live in the project's design document.

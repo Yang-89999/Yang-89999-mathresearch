@@ -31,7 +31,7 @@ def seed(conn: sqlite3.Connection, charter: Charter) -> list[str]:
                   f"reconstruction or classification problem, whether it lives over finite fields, what is "
                   f"known about its difficulty, and which catalogued problem it most resembles. Emit candidate "
                   f"problems and open 'learn' questions for material the knowledge base lacks."),
-            domains=[domain], priority=0.5,
+            domains=[domain], priority=0.5, origin="charter",
         ))
     if len(charter.domains) >= 2:
         a, b = charter.domains[0].split("(")[0].strip(), charter.domains[1].split("(")[0].strip()
@@ -41,7 +41,7 @@ def seed(conn: sqlite3.Connection, charter: Charter) -> list[str]:
             body="Follow mathematical interest. Look for invariants, correspondences or constructions that link "
                  "these areas and yield something computable. Record what is interesting even without a "
                  "cryptographic reading.",
-            domains=[charter.domains[0], charter.domains[1]], priority=0.5,
+            domains=[charter.domains[0], charter.domains[1]], priority=0.5, origin="charter",
         ))
     return ids
 

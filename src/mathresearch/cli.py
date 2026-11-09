@@ -9,6 +9,7 @@
     mathresearch lab run --family mq   run attack sweeps from the command line
     mathresearch ingest fetch 2301.00001   download papers and split them into knowledge units
     mathresearch ingest file paper.tex     ingest a local LaTeX/PDF/text file
+    mathresearch ingest seed SOURCE_ID     queue a seed read for a source already ingested
     mathresearch units search 'Groebner'   search the knowledge base
 """
 
@@ -65,6 +66,14 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  {lane:8s} {n}")
     blocked = conn.execute("SELECT COUNT(*) AS n FROM questions WHERE status='blocked'").fetchone()["n"]
     print(f"  blocked  {blocked}")
+    from . import reading
+    mix = reading.origin_mix(conn)
+    if mix:
+        print("  sparked by: " + ", ".join(f"{k} {v}" for k, v in sorted(mix.items())))
+    refs = conn.execute("SELECT COUNT(*) AS n, SUM(card IS NOT NULL) AS cards FROM sources "
+                        "WHERE provided_by = 'operator'").fetchone()
+    if refs["n"]:
+        print(f"  your references: {refs['n']} ({refs['cards'] or 0} with a paper card)")
     from . import pricing
     charter_path = ws / CHARTER_FILE
     sp = pricing.spend(conn)
@@ -189,6 +198,37 @@ def _domains(text: str | None) -> list[str] | None:
     return [d.strip() for d in text.split(",") if d.strip()] if text else None
 
 
+def _seed_policy(ws: Path) -> bool:
+    try:
+        return Charter.load(ws / CHARTER_FILE).reading.seed_operator_references
+    except (FileNotFoundError, CharterError):
+        return True
+
+
+def _seed(conn, ws: Path, source_id: str, args: argparse.Namespace) -> None:
+    """The operator provided this reference: mark it, and queue a seed read unless told not to."""
+    from . import reading, store
+    store.update(conn, "sources", source_id, provided_by="operator")
+    if getattr(args, "no_seed", False) or not _seed_policy(ws):
+        return
+    qid = reading.seed_reference(conn, source_id)
+    print(f"  seed read queued: {qid}")
+
+
+def cmd_ingest_seed(args: argparse.Namespace) -> int:
+    from . import reading, store
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    status = 0
+    for sid in args.source_ids:
+        if store.get(conn, "sources", sid) is None:
+            print(f"{sid}: no such source", file=sys.stderr)
+            status = 1
+            continue
+        print(f"{sid}: seed read {reading.seed_reference(conn, sid)}")
+    return status
+
+
 def cmd_ingest_fetch(args: argparse.Namespace) -> int:
     from . import ingest
 
@@ -206,13 +246,15 @@ def cmd_ingest_fetch(args: argparse.Namespace) -> int:
             failures += 1
             continue
         print(res.summary())
+        _seed(conn, ws, res.source_id, args)
     return 1 if failures and failures == len(args.refs) else 0
 
 
 def cmd_ingest_file(args: argparse.Namespace) -> int:
     from . import ingest
 
-    conn = db.connect(_workspace(args) / DB_FILE)
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
     try:
         res = ingest.ingest_file(conn, Path(args.path).expanduser(), title=args.title, kind=args.kind,
                                  year=args.year, domains=_domains(args.domains))
@@ -220,6 +262,7 @@ def cmd_ingest_file(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print(res.summary())
+    _seed(conn, ws, res.source_id, args)
     return 0
 
 
@@ -408,6 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--domains", help="comma-separated domain tags for the units")
     c.add_argument("--delay", type=float, default=3.0, help="seconds between requests (arXiv asks for 3)")
     c.add_argument("--force", action="store_true", help="re-ingest even if the source is already present")
+    c.add_argument("--no-seed", action="store_true", help="index only; do not queue a seed read")
     c.set_defaults(func=cmd_ingest_fetch)
     c = isub.add_parser("file", help="ingest a local .tex file, LaTeX directory, .pdf or text file")
     c.add_argument("path")
@@ -415,7 +459,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--kind", default="paper", choices=["paper", "book", "notes", "web", "other"])
     c.add_argument("--year", type=int)
     c.add_argument("--domains")
+    c.add_argument("--no-seed", action="store_true", help="index only; do not queue a seed read")
     c.set_defaults(func=cmd_ingest_file)
+    c = isub.add_parser("seed", help="queue a seed read for sources already ingested")
+    c.add_argument("source_ids", nargs="+")
+    c.set_defaults(func=cmd_ingest_seed)
     c = isub.add_parser("search", help="search arXiv; * marks papers already ingested")
     c.add_argument("query")
     c.add_argument("--max", type=int, default=10)

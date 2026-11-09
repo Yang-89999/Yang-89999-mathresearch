@@ -16,12 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import pricing, store
+from . import pricing, reading, store
 from .charter import Charter
 
 STALE_RUNS = 6         # an open question with this many runs loses priority
 ABANDON_RUNS = 12      # ... and with this many is abandoned
 DECAY = 0.7
+PRIOR_DECAY = 0.85     # priority factor for prior-only questions when they crowd out grounded ones
 DIGEST_CHARS_IN_CONTEXT = 2200
 DEAD_STATUSES = ("broken", "duplicate", "abandoned")
 LADDER = ["idea", "well_defined", "not_trivially_broken", "not_known", "useful_structure", "human_review"]
@@ -42,6 +43,7 @@ def reflect(conn: sqlite3.Connection, charter: Charter, workspace: Path | None =
     actions += _abandon_questions_on_dead_problems(conn)
     actions += _decay_or_abandon_stale(conn)
     actions += _reseed_starved_domains(conn, charter)
+    actions += _balance_origins(conn, charter)
     stats = collect_stats(conn, charter)
     digest = render_digest(stats, actions)
     digest_id = store.insert(conn, "digests", run_count=stats["runs"]["total"], trigger=trigger,
@@ -140,9 +142,34 @@ def _reseed_starved_domains(conn: sqlite3.Connection, charter: Charter) -> list[
                   f"(read_question) and the candidates they produced (list_catalog candidates), then look for "
                   f"operations and structures that were not covered. Emit candidates or close with a finding "
                   f"saying the domain is exhausted at this depth."),
-            domains=[domain], priority=0.4)
+            domains=[domain], priority=0.4, origin="reflection")
         actions.append(f"reseeded starved domain '{_domain_key(domain)}' as {qid}")
     return actions
+
+
+def _balance_origins(conn: sqlite3.Connection, charter: Charter) -> list[str]:
+    """Keep the agenda anchored: when questions from the model's prior alone exceed the charter's share of the
+    open agenda while questions sparked by references or experiments wait, lower the prior ones' priority."""
+    open_qs = store.select(conn, "questions", "status = 'open'")
+    if not open_qs:
+        return []
+    prior = [q for q in open_qs if (q.get("origin") or "prior") == "prior"]
+    grounded = [q for q in open_qs if q.get("origin") in reading.GROUNDED_ORIGINS]
+    if not grounded:
+        return []
+    share = len(prior) / (len(prior) + len(grounded))  # among ideas; charter and housekeeping questions excluded
+    if share <= charter.reading.max_prior_share:
+        return []
+    top_grounded = max(q["priority"] for q in grounded)
+    changed = 0
+    for q in prior:
+        if q["priority"] >= top_grounded * 0.5:  # leave the already-low ones alone
+            store.update(conn, "questions", q["id"], priority=max(0.05, round(q["priority"] * PRIOR_DECAY, 4)))
+            changed += 1
+    if not changed:
+        return []
+    return [f"lowered priority of {changed} prior-only questions: they are {share:.0%} of open ideas "
+            f"(charter max {charter.reading.max_prior_share:.0%}) while {len(grounded)} grounded ones wait"]
 
 
 # -- statistics -----------------------------------------------------------------
@@ -188,7 +215,11 @@ def collect_stats(conn: sqlite3.Connection, charter: Charter) -> dict[str, Any]:
                if not any(_domain_key(d).lower() in " ".join(q.get("domains") or []).lower() for q in live)]
 
     counts = {t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
-              for t in ("sources", "units", "experiments")}
+              for t in ("sources", "units", "experiments", "reading_notes")}
+    open_mix = reading.origin_mix(conn, ("open", "blocked"))
+    all_mix = reading.origin_mix(conn, ("open", "blocked", "running", "closed", "abandoned"))
+    n_ideas = open_mix.get("prior", 0) + sum(open_mix.get(o, 0) for o in reading.GROUNDED_ORIGINS)
+    useful = reading.source_usefulness(conn)
     exp_kinds = Counter(e["kind"] for e in store.select(conn, "experiments"))
 
     return {
@@ -206,12 +237,24 @@ def collect_stats(conn: sqlite3.Connection, charter: Charter) -> dict[str, Any]:
                       "blocked": [{"id": q["id"], "title": q["title"][:80]} for q in blocked[:8]],
                       "starved_domains": starved},
         "knowledge": {"sources": counts["sources"], "units": counts["units"], "experiments": counts["experiments"],
-                      "experiment_kinds": dict(exp_kinds)},
+                      "experiment_kinds": dict(exp_kinds), "reading_notes": counts["reading_notes"]},
+        "origins": {"open": open_mix, "all": all_mix,
+                    "prior_share_open": round(open_mix.get("prior", 0) / n_ideas, 3) if n_ideas else 0.0,
+                    "max_prior_share": charter.reading.max_prior_share},
+        "references": {
+            "useful": [r for r in useful if r["score"] > 0][:8],
+            "unread": [{"id": r["id"], "title": r["title"]} for r in useful
+                       if r["provided_by"] == "operator" and r["seed_status"] in ("open", "blocked", "running")][:8],
+            "barren": [{"id": r["id"], "title": r["title"]} for r in useful
+                       if r["score"] == 0 and r["seed_status"] in ("closed", "abandoned")][:8],
+        },
     }
 
 
 def render_digest(stats: dict[str, Any], actions: list[str]) -> str:
     r, p, f, q, k = stats["runs"], stats["problems"], stats["findings"], stats["questions"], stats["knowledge"]
+    o = stats.get("origins") or {"open": {}, "prior_share_open": 0.0, "max_prior_share": 0.5}
+    refs = stats.get("references") or {"useful": [], "unread": [], "barren": []}
     lines = ["# World digest", "",
              f"Runs: {r['total']} ({r['failed']} failed); tokens {r['input_tokens']:,} in / {r['output_tokens']:,} out"
              + (f"; cost ${r['cost_usd']:.2f}" if r["cost_usd"] else ""),
@@ -221,7 +264,8 @@ def render_digest(stats: dict[str, Any], actions: list[str]) -> str:
                  + f"; today ${r['cost_today_usd']:.2f}"
                  + (f" of ${r['budget']['max_usd_per_day']:.2f}" if r["budget"].get("max_usd_per_day") else ""))]
                if r["cost_usd"] else []),
-             f"Knowledge: {k['sources']} sources, {k['units']} units, {k['experiments']} experiments"
+             f"Knowledge: {k['sources']} sources, {k['units']} units, {k.get('reading_notes', 0)} reading notes, "
+             f"{k['experiments']} experiments"
              + (f" ({', '.join(f'{n} {kind}' for kind, n in sorted(k['experiment_kinds'].items()))})"
                 if k["experiment_kinds"] else ""),
              "", "## Candidate problems"]
@@ -248,6 +292,17 @@ def render_digest(stats: dict[str, Any], actions: list[str]) -> str:
     if q["stale"]:
         lines.append("Stale (many runs, still open): " + "; ".join(
             f"[{s['id']}] {s['title']} ({s['runs']} runs)" for s in q["stale"]))
+    if o["open"]:
+        lines.append("Open questions sparked by: " + ", ".join(f"{k} {n}" for k, n in sorted(o["open"].items()))
+                     + f" (prior-only share {o['prior_share_open']:.2f}, charter max {o['max_prior_share']:.2f})")
+    if refs["useful"] or refs["unread"] or refs["barren"]:
+        lines += ["", "## References"]
+        lines += [f"- [{x['id']}] {x['title']}: {x['questions']} questions, {x['candidates']} candidates, "
+                  f"{x['experiments']} experiments" for x in refs["useful"]]
+        if refs["unread"]:
+            lines.append("Seed reads waiting: " + "; ".join(f"[{x['id']}] {x['title']}" for x in refs["unread"]))
+        if refs["barren"]:
+            lines.append("Read, nothing came of it yet: " + "; ".join(f"[{x['id']}] {x['title']}" for x in refs["barren"]))
     if actions:
         lines += ["", "## Reflection actions"] + [f"- {a}" for a in actions]
     return "\n".join(lines) + "\n"

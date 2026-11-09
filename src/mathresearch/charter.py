@@ -39,6 +39,15 @@ class TargetProperties:
 
 
 @dataclass
+class ReadingPolicy:
+    """How references steer the agenda."""
+    seed_operator_references: bool = True   # every reference the operator ingests gets a seed-read question
+    max_prior_share: float = 0.5            # when ideas from the model's prior alone exceed this share of the open
+                                            # ideas (vs. ones sparked by references or experiments), reflection
+                                            # lowers their priority
+
+
+@dataclass
 class Charter:
     objective: str
     domains: list[str]
@@ -52,6 +61,7 @@ class Charter:
     catalog_max_year: int | None = None                       # ignore catalog entries published after this year
     budget: Budget = field(default_factory=Budget)
     pricing: dict[str, Price] = field(default_factory=dict)   # $ per million tokens, per model id
+    reading: ReadingPolicy = field(default_factory=ReadingPolicy)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Charter":
@@ -86,6 +96,7 @@ class Charter:
             catalog_max_year=int(data["catalog_max_year"]) if data.get("catalog_max_year") else None,
             budget=_budget(data.get("budget")),
             pricing=_pricing(data.get("pricing")),
+            reading=_reading(data.get("reading")),
         )
 
     @classmethod
@@ -135,6 +146,21 @@ def _budget(data) -> Budget:
         return Budget.from_dict(data)
     except ValueError as exc:
         raise CharterError(f"charter.budget: {exc}") from exc
+
+
+def _reading(data) -> ReadingPolicy:
+    if not data:
+        return ReadingPolicy()
+    if not isinstance(data, dict):
+        raise CharterError("charter.reading must be a mapping")
+    unknown = set(data) - {"seed_operator_references", "max_prior_share"}
+    if unknown:
+        raise CharterError(f"charter.reading: unknown fields {sorted(unknown)}")
+    share = float(data.get("max_prior_share", 0.5))
+    if not 0.0 <= share <= 1.0:
+        raise CharterError("charter.reading.max_prior_share must be between 0 and 1")
+    return ReadingPolicy(seed_operator_references=bool(data.get("seed_operator_references", True)),
+                         max_prior_share=share)
 
 
 def _pricing(data) -> dict[str, Price]:
@@ -212,4 +238,12 @@ budget:
 # pricing:
 #   your-openai-model-id: {input: 0.0, cached_input: 0.0, output: 0.0}
 pricing: {}
+# References you ingest (mathresearch ingest fetch / file) are seeds: each gets
+# a seed-read question that must open at least one question sparked by it.
+# Reflection lowers the priority of questions that come from the model's prior
+# alone once they exceed max_prior_share of the open questions that came from
+# ideas (the rest were sparked by your references or by experiments).
+reading:
+  seed_operator_references: true
+  max_prior_share: 0.5
 """

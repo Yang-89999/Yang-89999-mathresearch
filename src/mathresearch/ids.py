@@ -15,6 +15,8 @@ PREFIXES = {
     "finding": "fnd",
     "run": "run",
     "digest": "dg",
+    "reading_note": "rn",
+    "weakness_pattern": "wp",
 }
 
 

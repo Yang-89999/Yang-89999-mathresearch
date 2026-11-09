@@ -130,9 +130,10 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
         try:
             created = writeback.apply(conn, run_id, question, writeback.validate(data))
         except writeback.WritebackError as exc:
-            error, created = f"invalid write-back: {exc}", {"findings": [], "questions": [], "problems": []}
+            error, created = f"invalid write-back: {exc}", {"findings": [], "questions": [], "problems": [],
+                                                              "notes": [], "cards": [], "warnings": []}
     else:
-        created = {"findings": [], "questions": [], "problems": []}
+        created = {"findings": [], "questions": [], "problems": [], "notes": [], "cards": [], "warnings": []}
 
     status = "failed" if error else "done"
     if error:
@@ -141,7 +142,8 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
     store.update(conn, "runs", run_id, status=status, input_tokens=usage.input_tokens,
                  output_tokens=usage.output_tokens, cost_usd=cost, result=data, error=error,
                  context_ids={"experiments": ctx.experiment_ids, "cached_input_tokens": usage.cached_input_tokens,
-                              "cache_write_tokens": usage.cache_write_tokens, "budget_note": budget_note},
+                              "cache_write_tokens": usage.cache_write_tokens, "budget_note": budget_note,
+                              "reads": ctx.reads},
                  finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return RunOutcome(run_id=run_id, question_id=question["id"], status=status, steps=steps, usage=usage,
                       created=created, error=error, cost_usd=cost, budget_note=budget_note)
