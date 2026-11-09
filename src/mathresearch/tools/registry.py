@@ -47,6 +47,30 @@ def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
     return "\n".join(lines)
 
 
+def _search_findings(args: dict[str, Any], ctx: ToolContext) -> str:
+    kind = args.get("kind") or "all"
+    kinds = None if kind == "all" else [kind]
+    hits = store.search_memory(ctx.conn, args["query"], kinds, limit=max(1, min(int(args.get("limit") or 12), 30)))
+    if not hits:
+        return "Nothing in the research memory matches. No earlier run has recorded this yet."
+    lines = []
+    for k, r, _ in hits:
+        if k == "findings":
+            lines.append(f"[{r['id']}] finding ({r['kind']}, question {r.get('question_id') or '-'}, "
+                         f"problem {r.get('problem_id') or '-'}): {r['claim'][:400]}")
+        elif k == "questions":
+            lines.append(f"[{r['id']}] question ({r['status']}, {r['lane']} {r['kind']}): {r['title'][:200]}"
+                         + (f"\n  summary: {r['summary'][:300]}" if r.get("summary") else ""))
+        elif k == "notes":
+            lines.append(f"[{r['id']}] reading note on source {r.get('source_id') or '-'}: surprises: "
+                         f"{(r.get('surprises') or '-')[:250]}; structure exploited: "
+                         f"{(r.get('structure_exploited') or '-')[:200]}")
+        else:
+            lines.append(f"[{r['id']}] candidate ({r['status']}): {r['name'][:150]}; hidden: "
+                         f"{(r.get('hidden') or '-')[:200]}")
+    return "\n".join(lines) + "\nUse read_question or read_problem for the full record."
+
+
 def _open_unit(args: dict[str, Any], ctx: ToolContext) -> str:
     u = store.get(ctx.conn, "units", args["unit_id"])
     if not u:
@@ -474,6 +498,19 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
                 "sizes": {"type": "string"},
                 "seconds_per_size": {"type": "number"}}},
         ), _ladder_evaluate),
+    "search_findings": (
+        ToolSpec(
+            name="search_findings",
+            description="Full-text search (BM25) over the research memory: every finding, question, reading note "
+                        "and candidate problem recorded by any earlier run, across the whole agenda. Search before "
+                        "you start work, open a question or propose a candidate, so you build on what other "
+                        "branches established instead of repeating or contradicting it.",
+            input_schema={"type": "object", "properties": {
+                "query": {"type": "string", "description": "Words to search; quote phrases. Falls back to any "
+                                                            "of the words when nothing matches all of them."},
+                "kind": {"type": "string", "enum": ["all", "findings", "questions", "notes", "problems"]},
+                "limit": {"type": "integer", "description": "Max hits, 1-30."}}},
+        ), _search_findings),
     "search_units": (
         ToolSpec(
             name="search_units",

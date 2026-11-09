@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -172,6 +172,70 @@ CREATE TABLE IF NOT EXISTS lessons (
     sources     TEXT,                 -- JSON list of ePrint / arXiv ids
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+""",
+    5: """
+-- Full-text search over the system's own memory: findings, questions, reading notes and candidates,
+-- so a worker can find what any branch of the agenda already established (search_findings).
+CREATE VIRTUAL TABLE IF NOT EXISTS findings_fts USING fts5(
+    id UNINDEXED, claim, evidence_note,
+    content='findings', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS findings_fts_ai AFTER INSERT ON findings BEGIN
+    INSERT INTO findings_fts(rowid, id, claim, evidence_note) VALUES (new.rowid, new.id, new.claim, new.evidence_note);
+END;
+CREATE TRIGGER IF NOT EXISTS findings_fts_ad AFTER DELETE ON findings BEGIN
+    INSERT INTO findings_fts(findings_fts, rowid, id, claim, evidence_note) VALUES ('delete', old.rowid, old.id, old.claim, old.evidence_note);
+END;
+CREATE TRIGGER IF NOT EXISTS findings_fts_au AFTER UPDATE ON findings BEGIN
+    INSERT INTO findings_fts(findings_fts, rowid, id, claim, evidence_note) VALUES ('delete', old.rowid, old.id, old.claim, old.evidence_note);
+    INSERT INTO findings_fts(rowid, id, claim, evidence_note) VALUES (new.rowid, new.id, new.claim, new.evidence_note);
+END;
+INSERT INTO findings_fts(findings_fts) VALUES ('rebuild');
+CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts USING fts5(
+    id UNINDEXED, title, body, summary,
+    content='questions', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS questions_fts_ai AFTER INSERT ON questions BEGIN
+    INSERT INTO questions_fts(rowid, id, title, body, summary) VALUES (new.rowid, new.id, new.title, new.body, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS questions_fts_ad AFTER DELETE ON questions BEGIN
+    INSERT INTO questions_fts(questions_fts, rowid, id, title, body, summary) VALUES ('delete', old.rowid, old.id, old.title, old.body, old.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS questions_fts_au AFTER UPDATE ON questions BEGIN
+    INSERT INTO questions_fts(questions_fts, rowid, id, title, body, summary) VALUES ('delete', old.rowid, old.id, old.title, old.body, old.summary);
+    INSERT INTO questions_fts(rowid, id, title, body, summary) VALUES (new.rowid, new.id, new.title, new.body, new.summary);
+END;
+INSERT INTO questions_fts(questions_fts) VALUES ('rebuild');
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+    id UNINDEXED, prior, decision, confirmed, surprises, hardness, structure_exploited, limits, ideas,
+    content='reading_notes', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS notes_fts_ai AFTER INSERT ON reading_notes BEGIN
+    INSERT INTO notes_fts(rowid, id, prior, decision, confirmed, surprises, hardness, structure_exploited, limits, ideas) VALUES (new.rowid, new.id, new.prior, new.decision, new.confirmed, new.surprises, new.hardness, new.structure_exploited, new.limits, new.ideas);
+END;
+CREATE TRIGGER IF NOT EXISTS notes_fts_ad AFTER DELETE ON reading_notes BEGIN
+    INSERT INTO notes_fts(notes_fts, rowid, id, prior, decision, confirmed, surprises, hardness, structure_exploited, limits, ideas) VALUES ('delete', old.rowid, old.id, old.prior, old.decision, old.confirmed, old.surprises, old.hardness, old.structure_exploited, old.limits, old.ideas);
+END;
+CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON reading_notes BEGIN
+    INSERT INTO notes_fts(notes_fts, rowid, id, prior, decision, confirmed, surprises, hardness, structure_exploited, limits, ideas) VALUES ('delete', old.rowid, old.id, old.prior, old.decision, old.confirmed, old.surprises, old.hardness, old.structure_exploited, old.limits, old.ideas);
+    INSERT INTO notes_fts(rowid, id, prior, decision, confirmed, surprises, hardness, structure_exploited, limits, ideas) VALUES (new.rowid, new.id, new.prior, new.decision, new.confirmed, new.surprises, new.hardness, new.structure_exploited, new.limits, new.ideas);
+END;
+INSERT INTO notes_fts(notes_fts) VALUES ('rebuild');
+CREATE VIRTUAL TABLE IF NOT EXISTS problems_fts USING fts5(
+    id UNINDEXED, name, objects, forward_map, distribution, hidden, structure, quantum_notes,
+    content='problems', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS problems_fts_ai AFTER INSERT ON problems BEGIN
+    INSERT INTO problems_fts(rowid, id, name, objects, forward_map, distribution, hidden, structure, quantum_notes) VALUES (new.rowid, new.id, new.name, new.objects, new.forward_map, new.distribution, new.hidden, new.structure, new.quantum_notes);
+END;
+CREATE TRIGGER IF NOT EXISTS problems_fts_ad AFTER DELETE ON problems BEGIN
+    INSERT INTO problems_fts(problems_fts, rowid, id, name, objects, forward_map, distribution, hidden, structure, quantum_notes) VALUES ('delete', old.rowid, old.id, old.name, old.objects, old.forward_map, old.distribution, old.hidden, old.structure, old.quantum_notes);
+END;
+CREATE TRIGGER IF NOT EXISTS problems_fts_au AFTER UPDATE ON problems BEGIN
+    INSERT INTO problems_fts(problems_fts, rowid, id, name, objects, forward_map, distribution, hidden, structure, quantum_notes) VALUES ('delete', old.rowid, old.id, old.name, old.objects, old.forward_map, old.distribution, old.hidden, old.structure, old.quantum_notes);
+    INSERT INTO problems_fts(rowid, id, name, objects, forward_map, distribution, hidden, structure, quantum_notes) VALUES (new.rowid, new.id, new.name, new.objects, new.forward_map, new.distribution, new.hidden, new.structure, new.quantum_notes);
+END;
+INSERT INTO problems_fts(problems_fts) VALUES ('rebuild');
 """,
 }
 

@@ -15,6 +15,8 @@
     mathresearch lessons ingest            fetch the papers behind the lessons and queue seed reads
     mathresearch units search 'Groebner'   search the knowledge base
     mathresearch report runs|problems|questions   read what the system found (Markdown; add > file.md to save)
+    mathresearch memory search 'MinRank'   search what the system has recorded: findings, questions, notes, candidates
+    mathresearch transcript RUN_ID         replay a run's whole conversation (kept under transcripts/)
 """
 
 from __future__ import annotations
@@ -384,6 +386,46 @@ def cmd_ingest_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_memory_search(args: argparse.Namespace) -> int:
+    from .tools.registry import ToolContext, execute
+
+    ws = _workspace(args)
+    conn = db.connect(ws / DB_FILE)
+    ctx = ToolContext(conn=conn, workspace=ws, question={"id": None}, run_id="cli")
+    text, _ = execute("search_findings", {"query": args.query, "kind": args.kind, "limit": args.limit}, ctx)
+    print(text)
+    return 0
+
+
+def cmd_transcript(args: argparse.Namespace) -> int:
+    from .worker import load_transcript, transcript_path
+
+    ws = _workspace(args)
+    doc = load_transcript(ws, args.run_id)
+    if doc is None:
+        print(f"no transcript at {transcript_path(ws, args.run_id)} (runs before transcripts were kept have none)",
+              file=sys.stderr)
+        return 1
+    print(f"# Run {doc['run_id']}: {doc.get('status')} | model {doc.get('model')} | steps {doc.get('steps')} | "
+          f"question {doc.get('question_id')}" + (f" | error: {doc['error']}" if doc.get("error") else ""))
+    if args.system:
+        print("\n## System prompt\n" + doc.get("system", ""))
+    width = args.width
+    for i, m in enumerate(doc.get("messages") or []):
+        print(f"\n## {i + 1}. {m['role']}")
+        for b in m.get("content") or []:
+            if not isinstance(b, dict):
+                print(str(b)[:width])
+            elif b.get("type") == "text":
+                print(b["text"] if width <= 0 else b["text"][:width])
+            elif b.get("type") == "tool_use":
+                print(f"-> {b['name']}({json.dumps(b.get('input'), ensure_ascii=False)[:width]})")
+            elif b.get("type") == "tool_result":
+                body = str(b.get("content", ""))
+                print(("<- error: " if b.get("is_error") else "<- ") + (body if width <= 0 else body[:width]))
+    return 0
+
+
 def cmd_units_search(args: argparse.Namespace) -> int:
     conn = db.connect(_workspace(args) / DB_FILE)
     hits = store.search_units(conn, args.query, limit=args.limit)
@@ -609,6 +651,20 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("query")
     c.add_argument("--limit", type=int, default=10)
     c.set_defaults(func=cmd_units_search)
+
+    s = sub.add_parser("memory", help="search what the system has recorded")
+    ms = s.add_subparsers(dest="memory_command", required=True)
+    c = ms.add_parser("search", help="full-text search over findings, questions, reading notes and candidates")
+    c.add_argument("query")
+    c.add_argument("--kind", default="all", choices=["all", "findings", "questions", "notes", "problems"])
+    c.add_argument("--limit", type=int, default=15)
+    c.set_defaults(func=cmd_memory_search)
+
+    s = sub.add_parser("transcript", help="replay a run's whole conversation")
+    s.add_argument("run_id")
+    s.add_argument("--system", action="store_true", help="also print the system prompt")
+    s.add_argument("--width", type=int, default=2000, help="truncate each block to this many characters (0: no limit)")
+    s.set_defaults(func=cmd_transcript)
 
     s = sub.add_parser("lab", help="attack lab commands")
     ls = s.add_subparsers(dest="lab_command", required=True)

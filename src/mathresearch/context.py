@@ -54,6 +54,9 @@ Rules:
 8. Every finding carries evidence: a unit id, a source id with page or label, or an experiment id.
    Reasoning-only findings must say so and carry lower confidence.
 9. Be precise and brief. Exact statements, exact parameters, no filler.
+10. Build on the memory. Other runs have worked on other branches of the agenda; what you see above is only the
+   part linked to your question. Use search_findings before opening a question or proposing a candidate, and
+   cite or contradict what is already recorded rather than rediscovering it.
 """
 
 LANE_INSTRUCTIONS = {

@@ -7,6 +7,7 @@ conversation is discarded afterwards; only the write-back persists.
 from __future__ import annotations
 
 import dataclasses
+import gzip
 import json
 import sqlite3
 import time
@@ -143,6 +144,7 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
         error = f"{type(exc).__name__}: {exc}"
     except KeyboardInterrupt:  # Ctrl+C: record what was spent, put the question back, then stop
         _record_cancelled(conn, run_id, question["id"], usage, model_id, charter)
+        save_transcript(workspace, run_id, system, messages, {"status": "cancelled", "question_id": question["id"]})
         raise
 
     if data is not None and error is None:
@@ -164,6 +166,9 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                               "cache_write_tokens": usage.cache_write_tokens, "budget_note": budget_note,
                               "reads": ctx.reads},
                  finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    save_transcript(workspace, run_id, system, messages,
+                    {"status": status, "question_id": question["id"], "model": model_id, "steps": steps,
+                     "error": error, "cost_usd": cost})
     return RunOutcome(run_id=run_id, question_id=question["id"], status=status, steps=steps, usage=usage,
                       created=created, error=error, cost_usd=cost, budget_note=budget_note)
 
@@ -179,6 +184,39 @@ def _record_cancelled(conn: sqlite3.Connection, run_id: str, question_id: str, u
                  error=INTERRUPTED, context_ids={"cached_input_tokens": usage.cached_input_tokens,
                                                  "cache_write_tokens": usage.cache_write_tokens},
                  finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+
+
+TRANSCRIPTS_DIR = "transcripts"
+
+
+def transcript_path(workspace: Path, run_id: str) -> Path:
+    return Path(workspace) / TRANSCRIPTS_DIR / f"{run_id}.json.gz"
+
+
+def save_transcript(workspace: Path, run_id: str, system: str, messages: list[Message],
+                    meta: dict[str, Any]) -> Path | None:
+    """Keep the whole conversation of a run for the operator to audit: every message, tool call and tool result.
+    Workers never read transcripts; only the write-back is research memory. Provider-native items (such as
+    encrypted reasoning) are left out. A failure to write never fails the run."""
+    try:
+        path = transcript_path(workspace, run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        doc = {"run_id": run_id, **meta, "system": system,
+               "messages": [{"role": m.role, "content": [dataclasses.asdict(b) if dataclasses.is_dataclass(b)
+                                                         else str(b) for b in m.content]} for m in messages]}
+        with gzip.open(path, "wt", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False, default=str)
+        return path
+    except Exception:  # disk full, permissions: the database record is what matters
+        return None
+
+
+def load_transcript(workspace: Path, run_id: str) -> dict[str, Any] | None:
+    path = transcript_path(workspace, run_id)
+    if not path.exists():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def recover_interrupted(conn: sqlite3.Connection) -> dict[str, list[str]]:
