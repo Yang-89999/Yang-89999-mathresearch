@@ -22,7 +22,7 @@ One Python process, one SQLite file, one loop.
 Agenda (pick a question) -> assemble context from the database
   -> worker run with tools (search, open, run_sage, run_attack, propose)
   -> structured write-back (findings, new questions, candidates, summary)
-  -> next cycle; every N runs: regenerate the world digest, re-rank, report
+  -> next cycle; every N runs: reflect (tidy the agenda, regenerate the world digest)
 ```
 
 The database (`research.db`) holds eight tables: `sources`, `units`
@@ -123,12 +123,27 @@ Workers reach the same code through the `search_literature`,
 `ingest_source` and `list_sources` tools; a `learn` question is expected to
 end with the needed material indexed and a finding per source.
 
+## Reflection and the world digest
+
+Every `reflect_every_runs` runs (charter; default 20) the loop pauses to
+tidy the agenda and regenerate the **world digest**, a short markdown
+summary that every later worker sees in its context: live candidates and
+their ladder status, what broke and why, notable anomalies, lane shares
+against the charter, starved domains, blocked and stale questions, cost.
+The same step marks same-named candidates as duplicates, abandons
+questions whose problem is broken or duplicate, decays the priority of
+questions that keep running without closing, and re-seeds a survey for
+any charter domain with no live question. `mathresearch reflect` runs it
+on demand and writes `digest.md`; digests are also kept in the `digests`
+table.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
 - [x] PR 2: worker loop, provider adapters (OpenAI Responses, Claude Messages), write-back, agenda with lanes
 - [x] PR 3: attack lab v1 (MQ and C* families, four attacks, sweeps, ladder) and seed catalogs
 - [x] PR 4: literature ingestion (arXiv LaTeX sources, IACR ePrint PDFs, local files) and learn-question tools
-- [ ] Reflection step and world digest; retrodiction test
+- [x] PR 5: reflection step, agenda hygiene and the world digest
+- [ ] Retrodiction test (rediscover Patarin's break of C* from pre-1995 literature)
 
 The design review and build plan live in the project's design document.

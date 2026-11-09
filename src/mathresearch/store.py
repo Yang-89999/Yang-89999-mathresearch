@@ -21,6 +21,7 @@ _JSON_COLUMNS = {
     "experiments": {"params", "result", "tool_versions"},
     "findings": set(),
     "runs": {"context_ids", "result"},
+    "digests": {"stats", "actions"},
 }
 
 _ID_KIND = {
@@ -32,6 +33,7 @@ _ID_KIND = {
     "experiments": "experiment",
     "findings": "finding",
     "runs": "run",
+    "digests": "digest",
 }
 
 
