@@ -155,3 +155,31 @@ def test_validate_rejects_bad_kinds():
         validate(_writeback(findings=[{"kind": "guess", "claim": "", "evidence_kind": "unit"}]))
     with pytest.raises(WritebackError):
         validate(_writeback(status="done"))
+
+
+def _texts(message):
+    return " ".join(getattr(b, "text", "") or "" for b in message.content)
+
+
+def test_step_limit_warns_then_asks_for_writeback(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    qid = store.insert(conn, "questions", kind="learn", lane="deepen", status="open", title="Read a lot")
+    calls = [FakeProvider.call("list_catalog", {"kind": "problems"}, id_=f"c{i}") for i in range(3)]
+    provider = FakeProvider(calls + [FakeProvider.final(_writeback())])
+    outcome = run_question(conn, _charter(), provider, store.get(conn, "questions", qid), tmp_path, max_steps=3)
+    assert outcome.status == "done" and outcome.steps == 4 and "step limit" in outcome.budget_note
+    reqs = provider.requests
+    assert "this run may make 3 model calls" in _texts(reqs[0].messages[0])
+    assert "Step 2 of 3" in _texts(reqs[2].messages[-1])          # warned before the last step
+    last = reqs[3].messages[-1]
+    assert "Do not call any more tools" in _texts(last)
+    results = [b for b in last.content if hasattr(b, "tool_use_id")]
+    assert results and not str(results[0].content).startswith("Not run")  # the step-3 tool call still ran
+
+
+def test_lane_sets_the_default_step_budget(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    qid = store.insert(conn, "questions", kind="learn", lane="deepen", status="open", title="Q")
+    provider = FakeProvider([FakeProvider.final(_writeback())])
+    run_question(conn, _charter(), provider, store.get(conn, "questions", qid), tmp_path)
+    assert "may make 24 model calls" in _texts(provider.requests[0].messages[0])

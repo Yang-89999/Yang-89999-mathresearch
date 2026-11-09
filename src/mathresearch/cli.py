@@ -498,7 +498,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--provider", choices=["anthropic", "openai", "fake"],
                    help="default: MATHRESEARCH_PROVIDER, else whichever API key is set")
     s.add_argument("--model", help="model id (default: MATHRESEARCH_MODEL or the provider's default)")
-    s.add_argument("--max-steps", type=int, default=12, help="max model calls per worker run")
+    s.add_argument("--max-steps", type=int,
+                   help="max model calls per worker run (default by lane: harvest 12, deepen 24, open 16)")
     s.add_argument("--seed", type=int, help="random seed for lane selection")
     s.add_argument("--workers", type=int, help="parallel worker runs (default: charter max_concurrent_runs)")
     s.add_argument("--budget-usd", type=float, help="stop starting new runs once this invocation has spent this much")
