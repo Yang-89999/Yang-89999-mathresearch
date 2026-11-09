@@ -124,15 +124,18 @@ def spend(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT model, lane, substr(started_at, 1, 10) AS day, COUNT(*) AS runs, "
         "COALESCE(SUM(input_tokens),0) AS tin, COALESCE(SUM(output_tokens),0) AS tout, "
-        "COALESCE(SUM(cost_usd),0) AS usd, SUM(CASE WHEN cost_usd IS NULL AND status != 'running' THEN 1 ELSE 0 END) "
-        "AS unpriced FROM runs GROUP BY model, lane, day").fetchall()
+        "COALESCE(SUM(cost_usd),0) AS usd, "
+        "SUM(CASE WHEN cost_usd IS NULL AND status != 'running' AND input_tokens IS NOT NULL THEN 1 ELSE 0 END) "
+        "AS unpriced, SUM(CASE WHEN status = 'cancelled' AND input_tokens IS NULL THEN 1 ELSE 0 END) AS unrecorded "
+        "FROM runs GROUP BY model, lane, day").fetchall()
     out: dict[str, Any] = {"today": today, "usd_today": 0.0, "usd_total": 0.0, "tokens_today": 0, "tokens_total": 0,
-                           "unpriced_runs": 0, "by_model": {}, "by_lane": {}}
+                           "unpriced_runs": 0, "unrecorded_runs": 0, "by_model": {}, "by_lane": {}}
     for r in rows:
         tokens = r["tin"] + r["tout"]
         out["usd_total"] += r["usd"]
         out["tokens_total"] += tokens
         out["unpriced_runs"] += r["unpriced"] or 0
+        out["unrecorded_runs"] += r["unrecorded"] or 0
         if r["day"] == today:
             out["usd_today"] += r["usd"]
             out["tokens_today"] += tokens
