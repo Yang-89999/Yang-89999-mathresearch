@@ -10,6 +10,7 @@ unit's anchor (file, line) can always be opened again.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ from typing import Any, Iterable
 from .. import store
 from . import arxiv as ax
 from .latex import LatexUnit, parse, parse_directory
-from .text import extract_units_from_text, pdf_to_text
+from .text import extract_units_from_text, pdf_pages, pdf_to_text, split_sections
 
 MAX_UNITS_PER_SOURCE = 400
 MAX_UNITS_PER_BOOK = 5000   # textbooks are the main resource: keep all of them
@@ -162,7 +163,39 @@ def ingest_text(conn: sqlite3.Connection, text: str, *, title: str, path: str | 
         source_id = store.insert(conn, "sources", kind=kind, title=title, authors=authors or None, year=year,
                                  identifiers=identifiers or None, url=url, path=path, format=fmt,
                                  domains=domains or None)
-    return _finish(conn, source_id, title, fmt, units, domains, bib=bib)
+    res = _finish(conn, source_id, title, fmt, units, domains, bib=bib)
+    if fmt == "pdf" and path:
+        n = index_sections(conn, source_id, Path(path))
+        if n:
+            res.note = ((res.note + "; ") if res.note else "") + f"prose kept in {n} sections"
+    return res
+
+
+def index_sections(conn: sqlite3.Connection, source_id: str, path: Path) -> int:
+    """Store a PDF's prose section by section (replacing earlier sections) and record on each unit which
+    section it sits in. Returns the number of sections; 0 when the file cannot be read."""
+    try:
+        sections = split_sections(pdf_pages(Path(path)))
+    except Exception:  # not a readable PDF, or pypdf missing: the units still stand
+        return 0
+    conn.execute("DELETE FROM source_sections WHERE source_id = ?", (source_id,))
+    conn.executemany("INSERT INTO source_sections (source_id, idx, title, text) VALUES (?, ?, ?, ?)",
+                     [(source_id, i, t[:200], body) for i, (t, body) in enumerate(sections)])
+    squashed = [(t, re.sub(r"\s+", " ", body)) for t, body in sections]
+    for u in store.select(conn, "units", "source_id = ?", (source_id,)):
+        probe = re.sub(r"\s+", " ", u["statement"])[:60]
+        home = next((t for t, body in squashed if probe and probe in body), None)
+        if home:
+            anchor = dict(u.get("anchor") or {})
+            if anchor.get("section") != home:
+                anchor["section"] = home
+                store.update(conn, "units", u["id"], anchor=anchor)
+    conn.commit()
+    return len(sections)
+
+
+def section_count(conn: sqlite3.Connection, source_id: str) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM source_sections WHERE source_id = ?", (source_id,)).fetchone()["n"]
 
 
 def ingest_file(conn: sqlite3.Connection, path: Path, *, title: str | None = None, kind: str = "paper",
