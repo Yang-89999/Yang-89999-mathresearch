@@ -72,6 +72,15 @@ rewritten question summary. The
 conversation is not research memory; only the write-back persists. `--provider fake`
 exists for offline tests.
 
+To read what the runs produced:
+
+```bash
+mathresearch --dir ~/research report runs --last 5   # summaries, findings, reading notes, new questions
+mathresearch --dir ~/research report problems         # candidate problems by ladder status
+mathresearch --dir ~/research report questions        # the agenda by priority
+mathresearch --dir ~/research report runs --last 20 > ~/research/report.md   # save as Markdown
+```
+
 ### Memory
 
 Everything a run writes back stays in `research.db`: findings with evidence, questions, reading notes,
