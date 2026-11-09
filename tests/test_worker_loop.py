@@ -109,7 +109,9 @@ def test_single_run_with_tools_gap_and_candidate(tmp_path):
     learn = qs["Learn: counting points on fibers over finite fields"]
     assert learn["parent_id"] == qid and learn["kind"] == "learn"
     deepen = [q for q in qs.values() if q["lane"] == "deepen"]
-    assert len(deepen) == 1 and deepen[0]["problem_id"] == problems[0]["id"]
+    assert sorted(q["kind"] for q in deepen) == ["investigate", "novelty_check"]     # well-definedness + known-result check
+    assert all(q["problem_id"] == problems[0]["id"] for q in deepen)
+    assert problems[0]["novelty"]["verdict"] == "unchecked"
     run = store.select(conn, "runs")[0]
     assert run["status"] == "done" and run["context_ids"]["experiments"] == [exp["id"]]
 

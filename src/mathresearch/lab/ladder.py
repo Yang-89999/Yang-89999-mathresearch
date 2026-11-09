@@ -104,4 +104,7 @@ def evaluate(conn: sqlite3.Connection, problem_id: str, family: ProblemFamily, s
     status = "not_trivially_broken" if ntb["passed"] else "broken"
     best = [{"attack_id": v["attack"], "verdict": v["verdict"], "growth": v["growth"]} for v in ntb["verdicts"]]
     store.update(conn, "problems", problem_id, status=status, best_attacks=best, generator_path=family.name)
+    from ..novelty import promote_if_open  # noqa: PLC0415
+    if status == "not_trivially_broken" and promote_if_open(conn, problem_id):
+        status = "not_known"            # its known-result check already came out open
     return {"well_defined": wd, "attacks": ntb, "status": status}
