@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import store
+from . import pricing, store
 from .charter import Charter
 
 STALE_RUNS = 6         # an open question with this many runs loses priority
@@ -151,11 +151,14 @@ def collect_stats(conn: sqlite3.Connection, charter: Charter) -> dict[str, Any]:
     runs = store.select(conn, "runs")
     by_lane = Counter(r.get("lane") for r in runs)
     total = len(runs)
+    usd_by_lane: Counter = Counter()
+    for r in runs:
+        usd_by_lane[r.get("lane")] += r.get("cost_usd") or 0.0
     lane_rows = []
     for lane, share in charter.lanes.items():
         n = by_lane.get(lane, 0)
         lane_rows.append({"lane": lane, "runs": n, "actual": round(n / total, 3) if total else 0.0,
-                          "target": round(share, 3)})
+                          "target": round(share, 3), "usd": round(usd_by_lane.get(lane, 0.0), 4)})
     tokens_in = sum(r.get("input_tokens") or 0 for r in runs)
     tokens_out = sum(r.get("output_tokens") or 0 for r in runs)
     cost = sum(r.get("cost_usd") or 0.0 for r in runs)
@@ -190,7 +193,9 @@ def collect_stats(conn: sqlite3.Connection, charter: Charter) -> dict[str, Any]:
 
     return {
         "runs": {"total": total, "failed": sum(r.get("status") == "failed" for r in runs), "lanes": lane_rows,
-                 "input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": round(cost, 4)},
+                 "input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": round(cost, 4),
+                 "cost_today_usd": pricing.spend(conn)["usd_today"],
+                 "budget": {k: v for k, v in vars(charter.budget).items() if v is not None}},
         "problems": {"by_status": dict(by_status),
                      "candidates": [{"id": p["id"], "name": p["name"], "status": p["status"]} for p in candidates[:12]],
                      "broken": broken[:8]},
@@ -212,6 +217,10 @@ def render_digest(stats: dict[str, Any], actions: list[str]) -> str:
              + (f"; cost ${r['cost_usd']:.2f}" if r["cost_usd"] else ""),
              "Lane shares (actual vs target): " + ", ".join(
                  f"{l['lane']} {l['actual']:.2f}/{l['target']:.2f}" for l in r["lanes"]),
+             *([("Spend by lane: " + ", ".join(f"{l['lane']} ${l['usd']:.2f}" for l in r["lanes"])
+                 + f"; today ${r['cost_today_usd']:.2f}"
+                 + (f" of ${r['budget']['max_usd_per_day']:.2f}" if r["budget"].get("max_usd_per_day") else ""))]
+               if r["cost_usd"] else []),
              f"Knowledge: {k['sources']} sources, {k['units']} units, {k['experiments']} experiments"
              + (f" ({', '.join(f'{n} {kind}' for kind, n in sorted(k['experiment_kinds'].items()))})"
                 if k["experiment_kinds"] else ""),

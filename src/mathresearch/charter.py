@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from .pricing import Budget, Price
+
 LANES = ("harvest", "deepen", "open")
 
 
@@ -48,6 +50,8 @@ class Charter:
     notes: str = ""
     hidden_attacks: list[str] = field(default_factory=list)   # lab attacks withheld from workers (retrodiction)
     catalog_max_year: int | None = None                       # ignore catalog entries published after this year
+    budget: Budget = field(default_factory=Budget)
+    pricing: dict[str, Price] = field(default_factory=dict)   # $ per million tokens, per model id
 
     @classmethod
     def from_dict(cls, data: dict) -> "Charter":
@@ -80,6 +84,8 @@ class Charter:
             notes=str(data.get("notes", "")),
             hidden_attacks=[str(a) for a in data.get("hidden_attacks", []) or []],
             catalog_max_year=int(data["catalog_max_year"]) if data.get("catalog_max_year") else None,
+            budget=_budget(data.get("budget")),
+            pricing=_pricing(data.get("pricing")),
         )
 
     @classmethod
@@ -122,6 +128,31 @@ class Charter:
         return "\n".join(lines)
 
 
+def _budget(data) -> Budget:
+    if data is not None and not isinstance(data, dict):
+        raise CharterError("charter.budget must be a mapping")
+    try:
+        return Budget.from_dict(data)
+    except ValueError as exc:
+        raise CharterError(f"charter.budget: {exc}") from exc
+
+
+def _pricing(data) -> dict[str, Price]:
+    if not data:
+        return {}
+    if not isinstance(data, dict):
+        raise CharterError("charter.pricing must map model ids to prices")
+    out = {}
+    for model, price in data.items():
+        if not isinstance(price, dict):
+            raise CharterError(f"charter.pricing.{model} must be a mapping")
+        try:
+            out[str(model)] = Price.from_dict(price)
+        except ValueError as exc:
+            raise CharterError(f"charter.pricing.{model}: {exc}") from exc
+    return out
+
+
 DEFAULT_CHARTER = """\
 # MathResearch charter. The operator writes this once; the system takes it
 # from here. Steer by editing this file, not by supplying research questions.
@@ -162,6 +193,23 @@ lanes:
   deepen: 0.25
   open: 0.15
 
+# Workers that run at the same time (each one a model conversation plus its tools).
 max_concurrent_runs: 3
 reflect_every_runs: 20
+
+# Spending caps, enforced by the loop. A run that reaches its cap is asked to
+# write back immediately; no new run starts when it could break the daily or
+# total cap. Set a value to null to disable that cap.
+budget:
+  max_usd_per_run: 2.0
+  max_tokens_per_run: 600000
+  max_usd_per_day: 20.0
+  max_usd_total: null
+
+# Prices in US dollars per million tokens, by model id. Claude models are
+# built in; add the model you run with OpenAI here (from OpenAI's pricing
+# page), or dollar caps cannot be enforced for it. Example:
+# pricing:
+#   your-openai-model-id: {input: 0.0, cached_input: 0.0, output: 0.0}
+pricing: {}
 """

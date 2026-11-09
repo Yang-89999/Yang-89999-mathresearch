@@ -164,6 +164,33 @@ Patarin's attack from the tools, and opens one `attack` question on C*.
 n = 13 with polynomial-like growth, and warns if any forbidden term leaked
 into the seeded knowledge.
 
+## Spending caps and parallel workers
+
+Every run records its tokens and its cost in dollars. Claude model prices
+are built in; for any other model (OpenAI's included) put the price in the
+charter, in dollars per million tokens:
+
+```yaml
+pricing:
+  your-openai-model-id: {input: 1.25, cached_input: 0.125, output: 10.0}
+budget:
+  max_usd_per_run: 2.0        # a run at its cap is told to write back and stop
+  max_tokens_per_run: 600000  # works even for a model without a price
+  max_usd_per_day: 20.0       # no new run starts once the day's cap is used
+  max_usd_total: null         # lifetime cap for this workspace
+```
+
+`run` refuses to start a model that has no price while dollar caps are set
+(`--allow-unpriced` runs it under the token cap alone). `--budget-usd 5`
+caps a single invocation. A run near a daily or total cap gets only what is
+left as its own cap, and runs in flight hold their allowance until they
+finish, so parallel workers cannot overshoot together. `status` shows spend
+today and in total, by model; the world digest shows spend by lane.
+
+`max_concurrent_runs` in the charter (or `run --workers N`) runs that many
+questions at once, each worker with its own database connection; the main
+thread alone picks questions, checks the caps and runs the reflection step.
+
 ## Status
 
 - [x] PR 1: package, SQLite data model, charter, sandboxed `run_script`, CLI
@@ -172,6 +199,7 @@ into the seeded knowledge.
 - [x] PR 4: literature ingestion (arXiv LaTeX sources, IACR ePrint PDFs, local files) and learn-question tools
 - [x] PR 5: reflection step, agenda hygiene and the world digest
 - [x] PR 6: submitted attacks, hidden-knowledge scenarios, retrodiction test `patarin_1995`
-- [ ] Concurrency, cost accounting, more families (HFE, UOV, MinRank) and attacks
+- [x] PR 7: cost accounting, spending caps, parallel workers
+- [ ] More families (HFE, UOV, MinRank, syndrome decoding) and attacks (MinRank, msolve Gröbner)
 
 The design review and build plan live in the project's design document.

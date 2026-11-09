@@ -49,10 +49,12 @@ def test_anthropic_wire_shape():
 def test_anthropic_from_wire_tool_use_and_usage():
     resp = NS(content=[NS(type="thinking", thinking=""), NS(type="text", text="Let me search."),
                        NS(type="tool_use", id="t1", name="search_units", input={"query": "MinRank"})],
-              stop_reason="tool_use", usage=NS(input_tokens=10, output_tokens=5, cache_read_input_tokens=7))
+              stop_reason="tool_use", usage=NS(input_tokens=10, output_tokens=5, cache_read_input_tokens=7,
+                                                cache_creation_input_tokens=3))
     out = am.from_wire(resp)
     assert out.stop_reason == "tool_use" and out.tool_calls[0].name == "search_units"
-    assert out.usage.cached_input_tokens == 7
+    assert out.usage.cached_input_tokens == 7 and out.usage.cache_write_tokens == 3
+    assert out.usage.input_tokens == 20  # normalised to the whole prompt
     # raw content is replayed verbatim on the next turn, thinking included
     replayed = am.to_wire(ChatRequest(system="s", messages=[out.as_message()]), "m")["messages"][0]
     assert replayed["content"] == resp.content

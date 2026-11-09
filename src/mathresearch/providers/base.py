@@ -62,14 +62,22 @@ class ToolSpec:
 
 @dataclass
 class Usage:
+    """Token counts, normalised across providers: ``input_tokens`` is the whole prompt including the
+    cached part; ``cached_input_tokens`` were read from the prompt cache, ``cache_write_tokens`` written to it."""
     input_tokens: int = 0
     output_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_tokens: int = 0
 
     def add(self, other: "Usage") -> None:
         self.input_tokens += other.input_tokens
         self.output_tokens += other.output_tokens
         self.cached_input_tokens += other.cached_input_tokens
+        self.cache_write_tokens += other.cache_write_tokens
+
+    @property
+    def total(self) -> int:
+        return self.input_tokens + self.output_tokens
 
 
 @dataclass
@@ -143,17 +151,21 @@ class FakeProvider:
     default_model = "fake-1"
 
     def __init__(self, responses: list[ChatResponse] | None = None):
+        import threading
+
         self.responses = list(responses or [])
         self.requests: list[ChatRequest] = []
+        self._lock = threading.Lock()
 
     def complete(self, request: ChatRequest) -> ChatResponse:
         snapshot = ChatRequest(system=request.system, messages=list(request.messages), tools=list(request.tools),
                                output_schema=request.output_schema, model=request.model,
                                max_tokens=request.max_tokens, effort=request.effort)
-        self.requests.append(snapshot)
-        if not self.responses:
-            raise RuntimeError("FakeProvider ran out of scripted responses")
-        return self.responses.pop(0)
+        with self._lock:
+            self.requests.append(snapshot)
+            if not self.responses:
+                raise RuntimeError("FakeProvider ran out of scripted responses")
+            return self.responses.pop(0)
 
     @staticmethod
     def final(data: dict[str, Any]) -> ChatResponse:

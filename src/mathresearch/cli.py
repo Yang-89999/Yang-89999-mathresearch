@@ -65,6 +65,22 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  {lane:8s} {n}")
     blocked = conn.execute("SELECT COUNT(*) AS n FROM questions WHERE status='blocked'").fetchone()["n"]
     print(f"  blocked  {blocked}")
+    from . import pricing
+    charter_path = ws / CHARTER_FILE
+    sp = pricing.spend(conn)
+    print(f"\nspend: ${sp['usd_today']:.2f} today ({sp['today']} UTC), ${sp['usd_total']:.2f} in total; "
+          f"{sp['tokens_total']:,} tokens")
+    for m, v in sorted(sp["by_model"].items()):
+        print(f"  {m:24s} {v['runs']:4d} runs  ${v['usd']:.2f}  {v['input_tokens']:,} in / {v['output_tokens']:,} out")
+    if sp["unpriced_runs"]:
+        print(f"  {sp['unpriced_runs']} runs have no price (add the model to the charter's pricing section)")
+    if charter_path.exists():
+        try:
+            b = Charter.load(charter_path).budget
+            caps = ", ".join(f"{k} {v}" for k, v in vars(b).items() if v is not None) or "none"
+            print(f"  caps: {caps}")
+        except CharterError as exc:
+            print(f"  charter error: {exc}")
     print("\nengines on PATH:")
     for name, path in available_engines().items():
         print(f"  {name:8s} {path or '-'}")
@@ -105,7 +121,8 @@ def cmd_run_script(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    from .loop import run_cycles
+    from . import pricing
+    from .loop import UnpricedModelError, run_cycles
     from .providers import make_provider
 
     ws = _workspace(args)
@@ -120,20 +137,40 @@ def cmd_run(args: argparse.Namespace) -> int:
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    if args.budget_usd is not None:  # a cap for this invocation, on top of the charter's
+        spent = pricing.spend(conn)["usd_total"]
+        cap = spent + args.budget_usd
+        current = charter.budget.max_usd_total
+        charter.budget.max_usd_total = cap if current is None else min(current, cap)
+    workers = args.workers if args.workers is not None else charter.max_concurrent_runs
 
     def report(outcome):
         q = store.get(conn, "questions", outcome.question_id)
         created = ", ".join(f"{len(v)} {k}" for k, v in outcome.created.items() if v) or "nothing new"
+        cost = f" ${outcome.cost_usd:.3f}" if outcome.cost_usd is not None else " (unpriced)"
         print(f"[{outcome.status}] {q['lane']:7s} {q['kind']:12s} {q['title'][:70]}")
-        print(f"         steps={outcome.steps} tokens={outcome.usage.input_tokens}+{outcome.usage.output_tokens} "
-              f"-> {created}" + (f"  error: {outcome.error}" if outcome.error else ""))
+        print(f"         steps={outcome.steps} tokens={outcome.usage.input_tokens}+{outcome.usage.output_tokens}"
+              f"{cost} -> {created}" + (f"  error: {outcome.error}" if outcome.error else "")
+              + (f"  [stopped: {outcome.budget_note}]" if outcome.budget_note else ""))
 
-    outcomes = run_cycles(conn, charter, provider, ws, cycles=args.cycles, seed=args.seed, model=args.model,
-                          max_steps=args.max_steps, on_outcome=report)
-    if not outcomes:
+    try:
+        outcomes = run_cycles(conn, charter, provider, ws, cycles=args.cycles, seed=args.seed, model=args.model,
+                              max_steps=args.max_steps, on_outcome=report, workers=workers,
+                              allow_unpriced=args.allow_unpriced)
+    except UnpricedModelError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    for w in outcomes.warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    if outcomes.stopped_because:
+        print(f"stopped early: {outcomes.stopped_because}", file=sys.stderr)
+    elif not outcomes:
         print("nothing to run: the agenda has no open questions", file=sys.stderr)
     failed = sum(o.status == "failed" for o in outcomes)
-    print(f"\n{len(outcomes)} cycles, {failed} failed")
+    cost = sum(o.cost_usd or 0.0 for o in outcomes)
+    s = pricing.spend(conn)
+    print(f"\n{len(outcomes)} cycles, {failed} failed, ${cost:.3f} this invocation "
+          f"(${s['usd_today']:.2f} today, ${s['usd_total']:.2f} in total)")
     return 1 if failed and failed == len(outcomes) else 0
 
 
@@ -338,6 +375,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--model", help="model id (default: MATHRESEARCH_MODEL or the provider's default)")
     s.add_argument("--max-steps", type=int, default=12, help="max model calls per worker run")
     s.add_argument("--seed", type=int, help="random seed for lane selection")
+    s.add_argument("--workers", type=int, help="parallel worker runs (default: charter max_concurrent_runs)")
+    s.add_argument("--budget-usd", type=float, help="stop starting new runs once this invocation has spent this much")
+    s.add_argument("--allow-unpriced", action="store_true",
+                   help="run a model with no price in the charter, under the token cap only")
     s.set_defaults(func=cmd_run)
 
     s = sub.add_parser("catalog", help="catalog commands")
