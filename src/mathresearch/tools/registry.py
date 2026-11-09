@@ -51,7 +51,8 @@ def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
     papers = [u for u in hits if kinds.get(u["source_id"]) not in TEXTBOOK_KINDS]
     hits = books if where == "books" else papers if where == "papers" else books + papers  # textbooks first
     hits = hits[:limit]
-    if not hits:
+    passages = _search_passages(ctx.conn, args["query"], kinds, where)
+    if not hits and not passages:
         more = " in the textbooks" if where == "books" else ""
         return (f"No knowledge units match{more}. The knowledge base may not cover this yet: reason from what you "
                 "know (say so), search_literature, or request_paper for a text you need.")
@@ -68,7 +69,32 @@ def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
         if deps:
             lines.append("  uses: " + ", ".join(f"[{d['id']}] {d['kind']} {d.get('label') or ''}".strip()
                                                 for d in deps) + " (open_unit shows their statements)")
+    if passages:
+        lines.append("Passages in the text of PDF sources (read_source level 'section' with that section name):")
+        lines += passages
     return "\n".join(lines)
+
+
+def _search_passages(conn, query: str, kinds: dict[str, str], where: str, limit: int = 6) -> list[str]:
+    """BM25 over the prose of PDF sources, section by section (algorithm descriptions, analyses, parameters)."""
+    try:
+        rows = conn.execute(
+            "SELECT s.source_id, s.title, snippet(source_sections_fts, 1, '[', ']', ' ... ', 24) AS snip "
+            "FROM source_sections_fts JOIN source_sections s ON s.rowid = source_sections_fts.rowid "
+            "WHERE source_sections_fts MATCH ? ORDER BY bm25(source_sections_fts) LIMIT 60", (query,)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for r in rows:
+        is_book = kinds.get(r["source_id"]) in TEXTBOOK_KINDS
+        if (where == "books" and not is_book) or (where == "papers" and is_book):
+            continue
+        src = store.get(conn, "sources", r["source_id"]) or {}
+        out.append(f"- {r['source_id']} ({'textbook' if is_book else 'paper'}: {(src.get('title') or '')[:50]}) "
+                   f"section '{r['title']}': {' '.join(r['snip'].split())}")
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _request_paper(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -387,7 +413,7 @@ def _read_source(args: dict[str, Any], ctx: ToolContext) -> str:
     from ..reading import read_source
     level = args.get("level") or "card"
     text = read_source(ctx.conn, args["source_id"], level, section=args.get("section") or "",
-                       purpose=args.get("purpose") or "")
+                       purpose=args.get("purpose") or "", part=int(args.get("part") or 1))
     ctx.reads.append({"source_id": args["source_id"], "level": level, "section": args.get("section") or "",
                       "purpose": (args.get("purpose") or "")[:300]})
     return text
@@ -544,15 +570,18 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
             name="read_source",
             description="Read an ingested paper top-down. level 'card': the paper card (problem, hardness, structure, "
                         "results, attacks, open problems) or the abstract, plus earlier reading notes and the section "
-                        "list. level 'outline': sections with their units. level 'section': full statements of the "
-                        "units in the named section; needs 'purpose', the decision the section will change. Read "
-                        "down only as far as the question needs.",
+                        "list. level 'outline': sections with their units. level 'section': the named section; needs "
+                        "'purpose', the decision the section will change. For a PDF this is the section's text "
+                        "(algorithms, analysis, parameters) in parts, with the ids of the units stated in it; for "
+                        "LaTeX, the full statements of its units. Read down only as far as the question needs.",
             input_schema={"type": "object", "properties": {
                 "source_id": {"type": "string"},
                 "level": {"type": "string", "enum": ["card", "outline", "section"]},
                 "section": {"type": "string", "description": "part of a section name (level 'section'); else empty"},
                 "purpose": {"type": "string",
-                            "description": "The reading brief: which decision this changes (required for 'section')."}}},
+                            "description": "The reading brief: which decision this changes (required for 'section')."},
+                "part": {"type": "integer", "description": "For a long section of a PDF's text: which part to read "
+                                                           "(1, 2, ...); 1 if unsure."}}},
         ), _read_source),
     "list_weakness_patterns": (
         ToolSpec(

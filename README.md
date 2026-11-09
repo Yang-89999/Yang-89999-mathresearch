@@ -191,6 +191,13 @@ IACR ePrint only publishes PDFs, so those go through `pypdf`
 starting with "Theorem 3.1.". Downloads are kept under
 `~/research/sources/<service>/<id>/` so anchors can be reopened.
 
+A PDF also keeps its prose, cut at the document's own headings, so the algorithm descriptions, analyses and
+parameter tables are available too. Headings can be numbered sections that must continue the numbering
+(1, 1.1, 1.2, 2, ...), named ones such as Abstract or References, or chapters and §. When fewer than three
+headings are found, pages are used. `read_source` at level `section` returns a section's text in parts, with
+the ids of the units stated in it. `search_units` also lists matching passages. PDFs ingested before this
+change get their sections on the next `library fetch`.
+
 There are no embeddings and no fixed-size chunks: a unit is a whole
 definition, theorem, lemma or algorithm, and retrieval follows the paper's
 own logic. Ingestion records, for every unit, the labels it carries, the

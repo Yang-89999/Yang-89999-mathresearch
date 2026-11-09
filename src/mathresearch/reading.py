@@ -93,12 +93,24 @@ def seed_reference(conn: sqlite3.Connection, source_id: str, priority: float | N
 
 
 def outline(conn: sqlite3.Connection, source_id: str) -> list[dict[str, Any]]:
-    """Sections of a source in reading order, each with its units."""
+    """Sections of a source in reading order, each with its units (and, for PDFs, the size of its prose)."""
     sections: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
     for u in store.select(conn, "units", "source_id = ?", (source_id,), order="rowid"):
         name = (u.get("anchor") or {}).get("section") or "(no section)"
         sections.setdefault(name, []).append(u)
-    return [{"section": name, "units": units} for name, units in sections.items()]
+    prose = conn.execute("SELECT title, length(text) AS n FROM source_sections WHERE source_id = ? ORDER BY idx",
+                         (source_id,)).fetchall()
+    if not prose:
+        return [{"section": name, "units": units} for name, units in sections.items()]
+    out = [{"section": r["title"], "units": sections.pop(r["title"], []), "chars": r["n"]} for r in prose]
+    out += [{"section": name, "units": units} for name, units in sections.items()]
+    return out
+
+
+def section_text(conn: sqlite3.Connection, source_id: str, title: str) -> str | None:
+    row = conn.execute("SELECT text FROM source_sections WHERE source_id = ? AND title = ?",
+                       (source_id, title)).fetchone()
+    return row["text"] if row else None
 
 
 def card_text(conn: sqlite3.Connection, src: dict[str, Any]) -> str:
@@ -123,7 +135,7 @@ def card_text(conn: sqlite3.Connection, src: dict[str, Any]) -> str:
 
 
 def read_source(conn: sqlite3.Connection, source_id: str, level: str, section: str = "",
-                purpose: str = "") -> str:
+                purpose: str = "", part: int = 1) -> str:
     src = store.get(conn, "sources", source_id)
     if src is None:
         return f"No source with id {source_id}. Use list_sources or ingest_source."
@@ -148,7 +160,7 @@ def read_source(conn: sqlite3.Connection, source_id: str, level: str, section: s
                     f"evidence_kind 'source' with a page or section, or ingest the full text.")
         lines = []
         for s in secs:
-            lines.append(f"## {s['section']}")
+            lines.append(f"## {s['section']}" + (f"  ({s['chars']:,} characters of text)" if s.get("chars") else ""))
             lines += [f"  [{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}: "
                       f"{u['statement'][:100]}" for u in s["units"]]
         return "\n".join(lines)
@@ -158,9 +170,12 @@ def read_source(conn: sqlite3.Connection, source_id: str, level: str, section: s
                     "(e.g. 'if the rank bound needs D < q, candidate X is dead; otherwise sweep n = 20'). If you "
                     "cannot name one, you do not need to read it.")
         wanted = (section or "").strip().lower()
-        chosen = [s for s in secs if wanted and wanted in s["section"].lower()]
+        chosen = [s for s in secs if wanted and s["section"].lower().startswith(wanted)] or \
+            [s for s in secs if wanted and wanted in s["section"].lower()]
         if not chosen:
             return "No section matches. Sections: " + "; ".join(s["section"] for s in secs)
+        if chosen[0].get("chars"):
+            return _read_prose(conn, source_id, chosen, part)
         out, used = [], 0
         for s in chosen:
             out.append(f"## {s['section']}")
@@ -174,6 +189,24 @@ def read_source(conn: sqlite3.Connection, source_id: str, level: str, section: s
                 used += len(block)
         return "\n".join(out)
     return f"Unknown level {level!r}; use card, outline or section."
+
+
+def _read_prose(conn: sqlite3.Connection, source_id: str, chosen: list[dict[str, Any]], part: int) -> str:
+    """One part of a section's text (SECTION_CHARS each), with the ids of the units stated in it."""
+    sec = chosen[0]
+    text = section_text(conn, source_id, sec["section"]) or ""
+    parts = max(1, -(-len(text) // SECTION_CHARS))
+    part = min(max(1, int(part or 1)), parts)
+    chunk = text[(part - 1) * SECTION_CHARS: part * SECTION_CHARS]
+    out = [f"## {sec['section']}" + (f"  (part {part} of {parts}; pass part={part + 1} for the next)"
+                                     if parts > 1 and part < parts else (f"  (part {part} of {parts})" if parts > 1 else "")),
+           chunk]
+    if sec["units"]:
+        out.append("units stated here (cite these ids): " + ", ".join(
+            f"{u['id']} {u['kind']} {u.get('label') or ''}".strip() for u in sec["units"]))
+    if len(chosen) > 1:
+        out.append("other matching sections: " + "; ".join(s["section"] for s in chosen[1:8]))
+    return "\n".join(out)
 
 
 def apply_card(conn: sqlite3.Connection, card: dict[str, Any], run_id: str) -> str | None:

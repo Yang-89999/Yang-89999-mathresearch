@@ -180,10 +180,25 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
         name = src["title"][:40]
         if not _complete(conn, workspace, None, src, fetch_fn, delay, report, result, downloads, rivals):
             result["abstract_only"].append(name)
+    result["sectioned"] = add_missing_sections(conn, report)
     result["unmatched"] = [str(p) for p in recent_unmatched(downloads, result.get("picked", []))]
     for path in result["unmatched"]:
         report(f"not matched to any paper: {path} (use 'ingest file <pdf> --eprint YYYY/NNNN' or --title)")
     return result
+
+
+def add_missing_sections(conn: sqlite3.Connection, report: Callable[[str], None]) -> list[str]:
+    """PDF sources ingested before their prose was kept get it now (their units and ids stay as they are)."""
+    done = []
+    for src in store.select(conn, "sources", "format = 'pdf' AND path IS NOT NULL"):
+        path = Path(src["path"])
+        if not path.is_file() or path.suffix.lower() != ".pdf" or ingest.section_count(conn, src["id"]):
+            continue
+        n = ingest.index_sections(conn, src["id"], path)
+        if n:
+            report(f"{src['title'][:60]}: text kept in {n} sections")
+            done.append(src["id"])
+    return done
 
 
 def _record_requests(conn: sqlite3.Connection, workspace: Path, fetch_fn: ingest.ax.Fetch, delay: float,
@@ -308,6 +323,8 @@ def _first_page(path: Path) -> str | None:
         from pypdf import PdfReader  # noqa: PLC0415
     except ImportError:
         return None
+    import logging  # noqa: PLC0415
+    logging.getLogger("pypdf").setLevel(logging.ERROR)   # font-encoding warnings are noise here
     try:
         reader = PdfReader(str(path))
         return "\n".join((reader.pages[i].extract_text() or "") for i in range(min(2, len(reader.pages))))

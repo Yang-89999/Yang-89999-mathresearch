@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -266,6 +266,26 @@ CREATE INDEX IF NOT EXISTS idx_paper_requests_status ON paper_requests(status);
 -- argument, run_id, question_id}], "verdict": unchecked|known|open}. See novelty.py.
 ALTER TABLE problems ADD COLUMN novelty TEXT;
 """,
+    9: """
+-- The prose of PDF sources, section by section at the document's own headings (units keep only the
+-- theorem-like statements; algorithm descriptions, analyses and parameter tables live in the prose).
+CREATE TABLE IF NOT EXISTS source_sections (
+    source_id   TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    idx         INTEGER NOT NULL,
+    title       TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    PRIMARY KEY (source_id, idx)
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS source_sections_fts USING fts5(
+    title, text, content='source_sections', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS source_sections_fts_ai AFTER INSERT ON source_sections BEGIN
+    INSERT INTO source_sections_fts(rowid, title, text) VALUES (new.rowid, new.title, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS source_sections_fts_ad AFTER DELETE ON source_sections BEGIN
+    INSERT INTO source_sections_fts(source_sections_fts, rowid, title, text) VALUES ('delete', old.rowid, old.title, old.text);
+END;
+""",
 }
 
 
@@ -275,5 +295,5 @@ def _read_schema() -> str:
 
 def table_counts(conn: sqlite3.Connection) -> dict[str, int]:
     tables = ["sources", "units", "problems", "attacks", "questions", "experiments", "findings", "runs",
-              "digests", "reading_notes", "weakness_patterns", "lessons", "paper_requests"]
+              "digests", "reading_notes", "weakness_patterns", "lessons", "paper_requests", "source_sections"]
     return {t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"] for t in tables}

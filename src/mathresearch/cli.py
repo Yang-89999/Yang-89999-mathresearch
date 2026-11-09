@@ -313,6 +313,8 @@ def cmd_library_fetch(args: argparse.Namespace) -> int:
           f"{len(res['already'])} already present, {len(res['failed'])} failed")
     if res.get("requested"):
         print(f"{len(res['requested'])} papers the agents asked for now have a record: " + ", ".join(res["requested"]))
+    if res.get("sectioned"):
+        print(f"{len(res['sectioned'])} PDFs now have their text kept section by section")
     if res.get("unmatched"):
         print(f"{len(res['unmatched'])} recent PDFs in Downloads matched no paper (listed above)")
     if res["waiting"]:
