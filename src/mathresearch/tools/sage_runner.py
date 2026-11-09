@@ -75,6 +75,105 @@ def tool_versions(engine: str) -> dict[str, str]:
     return versions
 
 
+# -- write guard ------------------------------------------------------------------------------------------------
+# A script may write only inside its own experiment directory and the system temp directory. On the first live
+# runs a worker's script rewrote the system's own source files (the package is installed in editable mode), so
+# this is enforced in two layers: a Python audit hook prepended to every script (all platforms; it also blocks
+# starting other programs from plain Python scripts), and on macOS the operating system's sandbox (sandbox-exec),
+# which also covers programs Sage starts. Neither is meant to stop a determined attacker; they stop a research
+# worker from changing anything outside its experiment.
+
+GUARD_MARKER = "# --- mathresearch write guard (prepended; your script starts below) ---"
+
+GUARD_CODE = """
+def __mr_guard(allowed, block_spawn, programs):
+    import os, sys
+    roots = [os.path.realpath(a) for a in allowed]
+
+    def inside(path):
+        try:
+            p = os.path.realpath(os.fsdecode(os.fspath(path)))
+        except TypeError:
+            return True  # a file descriptor: opened earlier, already checked
+        return any(p == r or p.startswith(r + os.sep) for r in roots)
+
+    def deny(what, path):
+        raise PermissionError(f"write guard: {what} {path!r} is outside the experiment directory; "
+                              "scripts may write only in their working directory or the temp directory")
+
+    writes = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+    two_paths = {"os.rename", "os.link", "os.symlink", "shutil.copyfile", "shutil.copytree", "shutil.move"}
+    one_path = {"os.remove", "os.rmdir", "os.mkdir", "os.chmod", "os.chown", "os.truncate", "os.utime",
+                "shutil.rmtree", "os.chflags", "os.lchflags", "os.setxattr", "os.removexattr"}
+    spawn = {"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty",
+             "pty.spawn"}
+
+    def hook(event, args):
+        if event == "open":
+            path, mode, flags = (tuple(args) + (None, None, None))[:3]
+            if path is None or isinstance(path, int):
+                return
+            wants = (isinstance(mode, str) and any(c in mode for c in "wax+")) or \\
+                (isinstance(flags, int) and flags & writes)
+            if wants and not inside(path):
+                deny("writing", path)
+        elif event in one_path:
+            if args and not isinstance(args[0], int) and not inside(args[0]):
+                deny(event, args[0])
+        elif event in two_paths:
+            target = args[1] if len(args) > 1 else None
+            if target is not None and not isinstance(target, int) and not inside(target):
+                deny(event, target)
+            if event in ("os.rename", "shutil.move") and args and not inside(args[0]):
+                deny(event, args[0])
+        elif block_spawn and event in spawn:
+            if event == "subprocess.Popen" and args:
+                exe = args[0] if args[0] is not None else (args[1][0] if args[1] else "")
+                name = os.path.basename(os.fsdecode(exe if isinstance(exe, (str, bytes)) else str(exe)))
+                if name in programs:
+                    return
+            raise PermissionError(f"write guard: starting other programs ({event}) is not allowed in scripts; "
+                                  f"allowed: {sorted(programs)} via subprocess")
+
+    sys.addaudithook(hook)
+"""
+
+MATH_PROGRAMS = ("msolve", "Singular", "M2", "magma", "gp", "gap", "maxima", "sage")
+
+
+def guard_prefix(workdir: Path, block_spawn: bool) -> str:
+    allowed = [str(Path(workdir).resolve()), tempfile.gettempdir(), "/dev/null", "/dev/tty"]
+    return (f"{GUARD_MARKER}\n{GUARD_CODE}\n"
+            f"__mr_guard({allowed!r}, {block_spawn!r}, {set(MATH_PROGRAMS)!r})\ndel __mr_guard\n"
+            f"# --- end of guard ---\n")
+
+
+SANDBOX_PROFILE = """(version 1)
+(allow default)
+(deny file-write*)
+(allow file-write* (subpath "{workdir}") (subpath "/private/tmp") (subpath "/private/var/folders") (subpath "/dev"))
+"""
+
+_SANDBOX_OK: bool | None = None
+
+
+def sandbox_command(cmd: list[str], workdir: Path) -> list[str]:
+    """Wrap ``cmd`` in macOS's sandbox-exec so it can write only to ``workdir`` and temp directories. Returns
+    ``cmd`` unchanged where sandbox-exec is unavailable or fails its self-test."""
+    global _SANDBOX_OK
+    exe = shutil.which("sandbox-exec") if sys.platform == "darwin" else None
+    if not exe:
+        return cmd
+    profile = SANDBOX_PROFILE.format(workdir=str(Path(workdir).resolve()).replace('"', ""))
+    if _SANDBOX_OK is None:
+        try:
+            _SANDBOX_OK = subprocess.run([exe, "-p", profile, "/usr/bin/true"], capture_output=True,
+                                         timeout=20).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            _SANDBOX_OK = False
+    return [exe, "-p", profile, *cmd] if _SANDBOX_OK else cmd
+
+
 def run_script(
     code: str,
     *,
@@ -102,12 +201,14 @@ def run_script(
     workdir = Path(cwd) if cwd else Path(tempfile.mkdtemp(prefix="mr_exp_"))
     workdir.mkdir(parents=True, exist_ok=True)
     script = workdir / ("script.sage" if engine == "sage" else "script.py")
-    script.write_text(code, encoding="utf-8")
+    # Sage may start helper programs (Singular, Maxima); the OS sandbox covers those on macOS.
+    script.write_text(guard_prefix(workdir, block_spawn=engine == "python") + code, encoding="utf-8")
 
-    cmd = ["sage", "-python", str(script)] if engine == "sage" else [sys.executable, "-I", str(script)]
+    cmd = [sys.executable, "-I", str(script)]
     if engine == "sage":
         # Let Sage preparse the file so Sage syntax (R.<x> = ...) works.
         cmd = ["sage", str(script)]
+    cmd = sandbox_command(cmd, workdir)
 
     child_env = {"PATH": os.environ.get("PATH", ""), "HOME": str(workdir), "LANG": "C.UTF-8",
                  "PYTHONDONTWRITEBYTECODE": "1", "MPLBACKEND": "Agg"}

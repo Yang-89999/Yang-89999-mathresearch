@@ -69,7 +69,14 @@ the worker's context from the database, runs the model with tools
 write-back: findings with evidence, new questions with what sparked them (a knowledge gap opens a `learn`
 question that blocks its parent), candidate problems, reading notes, paper cards, weakness audits, and the
 rewritten question summary. The
-conversation is not research memory; only the write-back persists. `--provider fake`
+conversation is not research memory; only the write-back persists.
+
+Scripts the workers run (`run_script`, submitted attacks) may write only in their own experiment
+directory (`~/research/experiments/<run id>/`) and the temp directory. A Python audit hook prepended to
+every script blocks writes elsewhere and blocks starting programs other than the math tools (msolve,
+Singular, M2, Magma, GP, GAP, Maxima, Sage). On macOS the operating system's sandbox (`sandbox-exec`)
+enforces the same write limit, including for programs Sage starts. This stops a worker from editing the
+system's own code, which happened once before the guard existed. `--provider fake`
 exists for offline tests.
 
 To read what the runs produced:
