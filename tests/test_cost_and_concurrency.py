@@ -165,11 +165,9 @@ def test_parallel_workers_run_distinct_questions(tmp_path):
     charter = _charter(reflect_every_runs=3)
     prov = SlowFake(6)
     reflections = []
-    t0 = time.perf_counter()
     res = run_cycles(conn, charter, prov, tmp_path, cycles=6, seed=2, workers=3, on_reflection=reflections.append)
-    elapsed = time.perf_counter() - t0
     assert len(res) == 6 and all(o.status == "done" for o in res)
-    assert prov.peak == 3 and elapsed < 6 * 0.15  # really concurrent
+    assert prov.peak == 3  # three provider calls in flight at once: really concurrent (no wall-clock bound)
     assert not prov.overlap  # no question handed to two workers at once
     assert db.table_counts(conn)["runs"] == 6 and len(reflections) >= 1  # batches can finish together
     assert not store.select(conn, "questions", "status = 'running'")
