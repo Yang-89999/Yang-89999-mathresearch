@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 import shutil
 import sqlite3
+import time
+import unicodedata
 from importlib import resources
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +23,8 @@ import yaml
 from . import ingest, reading, store
 
 LIBRARY_DIR = "library"
+TITLE_WINDOW = 400           # the title must start within this many letters of the first page
+DOWNLOAD_MAX_AGE_DAYS = 120   # Downloads PDFs older than this are not opened to look for a title
 FILE_SUFFIXES = (".pdf", ".tex", ".txt", ".md")
 
 
@@ -112,10 +116,11 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
     result: dict[str, list[str]] = {"ingested": [], "already": [], "waiting": [], "failed": [], "abstract_only": [],
                                     "completed": []}
     first = True
+    rivals = [s["title"] for s in ingest.abstract_only(conn)]
     for e in entries(topic):
         src = find_ingested(conn, e)
         if src and _abstract_only(src):
-            done = _complete(conn, workspace, e, src, fetch_fn, delay, report, result, downloads)
+            done = _complete(conn, workspace, e, src, fetch_fn, delay, report, result, downloads, rivals)
             if not done:
                 result["abstract_only"].append(e["id"])
             continue
@@ -163,20 +168,59 @@ def fetch(conn: sqlite3.Connection, workspace: Path, *, topic: str | None = None
             line += f"\n  seed read queued: {qid}"
         report(line)
         result["ingested"].append(e["id"])
-    # abstract-only papers that are not on the list (the agents found them)
+    # papers the agents asked for by ePrint number that the knowledge base has no record of yet: take the record
+    # (title, abstract) from the ePrint page so a downloaded PDF can be matched to it below
+    result["requested"] = _record_requests(conn, workspace, fetch_fn, delay, report, result)
+    # abstract-only papers that are not on the list (the agents found them or asked for them)
     listed = {(find_ingested(conn, e) or {}).get("id") for e in entries()}
+    rivals = [s["title"] for s in ingest.abstract_only(conn)]
     for src in ingest.abstract_only(conn):
         if src["id"] in listed:
             continue
         name = src["title"][:40]
-        if not _complete(conn, workspace, None, src, fetch_fn, delay, report, result, downloads):
+        if not _complete(conn, workspace, None, src, fetch_fn, delay, report, result, downloads, rivals):
             result["abstract_only"].append(name)
+    result["unmatched"] = [str(p) for p in recent_unmatched(downloads, result.get("picked", []))]
+    for path in result["unmatched"]:
+        report(f"not matched to any paper: {path} (use 'ingest file <pdf> --eprint YYYY/NNNN' or --title)")
     return result
+
+
+def _record_requests(conn: sqlite3.Connection, workspace: Path, fetch_fn: ingest.ax.Fetch, delay: float,
+                     report: Callable[[str], None], result: dict[str, list[str]]) -> list[str]:
+    from . import wanted  # noqa: PLC0415  (wanted imports ingest; keep the import graph flat)
+    done = []
+    for r in wanted.open_requests(conn):
+        kind = ingest.ax.classify(r.get("reference") or "")
+        if not kind or kind[0] != "eprint" or r.get("source_id") or ingest.find_source(conn, *kind):
+            continue
+        try:
+            ingest.ax.polite_sleep(delay)
+            res = ingest.ingest_reference(conn, kind[1], workspace, fetch=fetch_fn, delay=delay)
+        except Exception as exc:  # one failure must not stop the list
+            result["failed"].append(f"{kind[1]}: {type(exc).__name__}: {exc}")
+            report(f"requested {kind[1]}: {type(exc).__name__}: {exc}")
+            continue
+        store.update(conn, "paper_requests", r["id"], source_id=res.source_id)
+        report(f"requested by the agents: {res.summary()}")
+        done.append(kind[1])
+    return done
+
+
+def recent_unmatched(downloads: Path | None, picked: list[str], days: float = 2) -> list[Path]:
+    """PDFs that arrived in Downloads in the last ``days`` days and were not matched to any paper."""
+    if downloads is None or not Path(downloads).expanduser().is_dir():
+        return []
+    cutoff = time.time() - days * 86400
+    taken = {str(Path(p).resolve()) for p in picked}
+    return sorted(p for p in Path(downloads).expanduser().iterdir()
+                  if p.is_file() and p.suffix.lower() == ".pdf" and p.stat().st_mtime >= cutoff
+                  and str(p.resolve()) not in taken)
 
 
 def _complete(conn: sqlite3.Connection, workspace: Path, e: dict[str, Any] | None, src: dict[str, Any],
               fetch_fn: ingest.ax.Fetch, delay: float, report: Callable[[str], None],
-              result: dict[str, list[str]], downloads: Path | None = None) -> bool:
+              result: dict[str, list[str]], downloads: Path | None = None, rivals: Any = ()) -> bool:
     """Give an abstract-only source its full text: from the arXiv LaTeX when the entry points at arXiv,
     otherwise from a file under library/, a download in ``downloads``, or an arXiv version found by title.
     Returns True when the full text was attached (or an error was recorded)."""
@@ -194,11 +238,12 @@ def _complete(conn: sqlite3.Connection, workspace: Path, e: dict[str, Any] | Non
         else:
             path = local_file(workspace, e if e else (eprint_id or "").replace("/", "_"))
             if path is None and downloads is not None and eprint_id:
-                found = find_download(downloads, eprint_id, src["title"])
+                found = find_download(downloads, eprint_id, src["title"], rivals)
                 if found is not None:
                     path = workspace / LIBRARY_DIR / f"{e['id'] if e else eprint_id.replace('/', '_')}.pdf"
                     path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(found, path)
+                    result.setdefault("picked", []).append(str(found))
                     report(f"{name}: picked up {found}")
             if path is not None:
                 res = ingest.attach_file(conn, src["id"], path)
@@ -212,6 +257,8 @@ def _complete(conn: sqlite3.Connection, workspace: Path, e: dict[str, Any] | Non
         return True
     report(res.summary())
     result["completed"].append(name)
+    if store.select(conn, "questions", "kind = 'seed' AND origin_id = ?", (src["id"],), limit=1):
+        reading.seed_reference(conn, src["id"])   # a waiting seed read moves up now that the full text is here
     return True
 
 
@@ -222,6 +269,38 @@ def _title_on_page(title: str, text: str, share: float = 0.7) -> bool:
     words = [w for w in ingest.ax.norm_title(title).split() if w not in _SMALL_WORDS and len(w) > 2]
     page = set(ingest.ax.norm_title(text).split())
     return bool(words) and sum(w in page for w in words) >= share * len(words)
+
+
+def _title_pos(title: str, text: str) -> int | None:
+    """Where the whole title, in order, starts near the top of the page (spaces ignored: PDF text often loses
+    or adds them); None when it is not there. Stricter than _title_on_page, for files whose name says nothing
+    about the paper."""
+    t = ingest.ax.norm_title(unicodedata.normalize("NFKC", title)).replace(" ", "")
+    page = ingest.ax.norm_title(unicodedata.normalize("NFKC", text)).replace(" ", "")
+    if len(t) < 16:
+        return None
+    i = page.find(t, 0, TITLE_WINDOW + len(t))
+    return None if i < 0 else i
+
+
+def _title_at_top(title: str, text: str, rivals: Any = ()) -> bool:
+    """The title is at the top of the page, before any rival title found there: a paper's abstract may quote
+    the title of a related paper that is also wanted."""
+    pos = _title_pos(title, text)
+    if pos is None:
+        return False
+    return not any(r != title and (rp := _title_pos(r, text)) is not None and rp < pos for r in rivals)
+
+
+_PAGES: dict[tuple[str, float, int], str | None] = {}
+
+
+def _first_page_cached(path: Path) -> str | None:
+    st = path.stat()
+    key = (str(path), st.st_mtime, st.st_size)
+    if key not in _PAGES:
+        _PAGES[key] = _first_page(path)
+    return _PAGES[key]
 
 
 def _first_page(path: Path) -> str | None:
@@ -236,15 +315,32 @@ def _first_page(path: Path) -> str | None:
         return ""
 
 
-def find_download(folder: Path, eprint_id: str, title: str) -> Path | None:
+def find_download(folder: Path, eprint_id: str, title: str, rivals: Any = ()) -> Path | None:
     """A PDF of ePrint paper ``eprint_id`` that a browser saved into ``folder``.
 
     Browsers name the file after the URL (``939.pdf`` for 2015/939, ``939 (1).pdf`` for a second copy) or the
     operator saves it as ``2015-939.pdf``. The bare number is ambiguous across years, so such a file is taken
-    only when its first page carries the paper's title (needs pypdf); year-qualified names are taken as is."""
+    only when its first page carries the paper's title (needs pypdf); year-qualified names are taken as is.
+    A file with any other name (a browser that names downloads after the page title, or a renamed file) is
+    taken when the paper's full title stands at the top of its first page."""
     folder = Path(folder).expanduser()
     if not folder.is_dir():
         return None
+    by_number = _find_numbered(folder, eprint_id, title)
+    if by_number is not None:
+        return by_number
+    cutoff = time.time() - DOWNLOAD_MAX_AGE_DAYS * 86400
+    for p in sorted((p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"),
+                    key=lambda p: p.stat().st_mtime, reverse=True):
+        if p.stat().st_mtime < cutoff:
+            break
+        text = _first_page_cached(p)
+        if text and _title_at_top(title, text, rivals):
+            return p
+    return None
+
+
+def _find_numbered(folder: Path, eprint_id: str, title: str) -> Path | None:
     year, num = eprint_id.split("/")
     nums = {num, str(int(num))}
     qualified = re.compile(rf"{year}[-_](?:{'|'.join(sorted(nums))})(?:\s*\(\d+\)|-\d+)?\.pdf", re.IGNORECASE)
@@ -252,12 +348,12 @@ def find_download(folder: Path, eprint_id: str, title: str) -> Path | None:
     found = sorted((p for p in folder.iterdir() if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
     for p in found:
         if qualified.fullmatch(p.name):
-            text = _first_page(p)
+            text = _first_page_cached(p)
             if text is None or not text or _title_on_page(title, text):
                 return p
     for p in found:
         if bare.fullmatch(p.name):
-            text = _first_page(p)
+            text = _first_page_cached(p)
             if text and _title_on_page(title, text):
                 return p
     return None

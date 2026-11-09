@@ -86,20 +86,60 @@ def tool_versions(engine: str) -> dict[str, str]:
 GUARD_MARKER = "# --- mathresearch write guard (prepended; your script starts below) ---"
 
 GUARD_CODE = """
-def __mr_guard(allowed, block_spawn, programs):
+def __mr_guard(allowed, block_spawn, programs, guard_dir):
     import os, sys
     roots = [os.path.realpath(a) for a in allowed]
+    guard = os.path.realpath(guard_dir) if guard_dir else None
+
+    def under(p, r):
+        return p == r or p.startswith(r + os.sep)
 
     def inside(path):
         try:
             p = os.path.realpath(os.fsdecode(os.fspath(path)))
         except TypeError:
             return True  # a file descriptor: opened earlier, already checked
-        return any(p == r or p.startswith(r + os.sep) for r in roots)
+        if guard and under(p, guard):
+            return False  # the guard's own files are never writable
+        return any(under(p, r) for r in roots)
 
     def deny(what, path):
         raise PermissionError(f"write guard: {what} {path!r} is outside the experiment directory; "
                               "scripts may write only in their working directory or the temp directory")
+
+    def python_child(argv, env):
+        # Another Python process is allowed when it inherits this guard: the guard directory first on
+        # PYTHONPATH (its sitecustomize installs the guard) and no flag that skips it (-I, -E, -S).
+        env = os.environ if env is None else env
+        path = env.get("PYTHONPATH") or env.get(b"PYTHONPATH") or ""
+        first = os.fsdecode(path).split(os.pathsep)[0]
+        if not guard or not first or os.path.realpath(first) != guard:
+            return "the child must keep PYTHONPATH from os.environ"
+        args = [os.fsdecode(a) for a in argv[1:]]
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a == "--" or a == "-" or not a.startswith("-"):
+                break
+            if a.startswith("--"):
+                i += 1
+                continue
+            for j, ch in enumerate(a[1:]):
+                if ch in "IES":
+                    return f"flag -{ch} would skip the guard"
+                if ch == "m":
+                    mod = a[j + 2:] or (args[i + 1] if i + 1 < len(args) else "")
+                    if mod.split(".")[0] in ("pip", "ensurepip", "venv"):
+                        return "installing packages is not allowed (numpy and sympy are installed)"
+                    return None
+                if ch == "c":
+                    return None
+                if ch in "XW":
+                    if j == len(a) - 2:
+                        i += 1
+                    break
+            i += 1
+        return None
 
     writes = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
     two_paths = {"os.rename", "os.link", "os.symlink", "shutil.copyfile", "shutil.copytree", "shutil.move"}
@@ -107,6 +147,7 @@ def __mr_guard(allowed, block_spawn, programs):
                 "shutil.rmtree", "os.chflags", "os.lchflags", "os.setxattr", "os.removexattr"}
     spawn = {"subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty",
              "pty.spawn"}
+    pythons = {os.path.basename(sys.executable)}
 
     def hook(event, args):
         if event == "open":
@@ -127,13 +168,20 @@ def __mr_guard(allowed, block_spawn, programs):
             if event in ("os.rename", "shutil.move") and args and not inside(args[0]):
                 deny(event, args[0])
         elif block_spawn and event in spawn:
+            why = "only Python (sys.executable) and these math programs may be started"
             if event == "subprocess.Popen" and args:
-                exe = args[0] if args[0] is not None else (args[1][0] if args[1] else "")
+                argv = list(args[1]) if args[1] else []
+                exe = args[0] if args[0] is not None else (argv[0] if argv else "")
                 name = os.path.basename(os.fsdecode(exe if isinstance(exe, (str, bytes)) else str(exe)))
                 if name in programs:
                     return
-            raise PermissionError(f"write guard: starting other programs ({event}) is not allowed in scripts; "
-                                  f"allowed: {sorted(programs)} via subprocess")
+                if name in pythons or (name.startswith("python") and name[6:].replace(".", "").isdigit()):
+                    why = python_child(argv, args[3] if len(args) > 3 else None)
+                    if why is None:
+                        return
+            raise PermissionError(f"write guard: starting other programs ({event}) is not allowed in scripts: "
+                                  f"{why}; allowed: Python via subprocess.run([sys.executable, 'helper.py']) "
+                                  f"(the guard applies there too) and {sorted(programs)}")
 
     sys.addaudithook(hook)
 """
@@ -141,10 +189,11 @@ def __mr_guard(allowed, block_spawn, programs):
 MATH_PROGRAMS = ("msolve", "Singular", "M2", "magma", "gp", "gap", "maxima", "sage")
 
 
-def guard_prefix(workdir: Path, block_spawn: bool) -> str:
+def guard_prefix(workdir: Path, block_spawn: bool, guard_dir: Path | None = None) -> str:
     allowed = [str(Path(workdir).resolve()), tempfile.gettempdir(), "/dev/null", "/dev/tty"]
+    gd = str(Path(guard_dir).resolve()) if guard_dir else None
     return (f"{GUARD_MARKER}\n{GUARD_CODE}\n"
-            f"__mr_guard({allowed!r}, {block_spawn!r}, {set(MATH_PROGRAMS)!r})\ndel __mr_guard\n"
+            f"__mr_guard({allowed!r}, {block_spawn!r}, {set(MATH_PROGRAMS)!r}, {gd!r})\ndel __mr_guard\n"
             f"# --- end of guard ---\n")
 
 
@@ -201,8 +250,14 @@ def run_script(
     workdir = Path(cwd) if cwd else Path(tempfile.mkdtemp(prefix="mr_exp_"))
     workdir.mkdir(parents=True, exist_ok=True)
     script = workdir / ("script.sage" if engine == "sage" else "script.py")
-    # Sage may start helper programs (Singular, Maxima); the OS sandbox covers those on macOS.
-    script.write_text(guard_prefix(workdir, block_spawn=engine == "python") + code, encoding="utf-8")
+    # Sage may start helper programs (Singular, Maxima); the OS sandbox covers those on macOS. A Python script
+    # may start further Python processes: the guard reaches them through a sitecustomize module on PYTHONPATH,
+    # kept in its own directory, which scripts cannot write to.
+    guard_dir = Path(tempfile.mkdtemp(prefix="mr_guard_")) if engine == "python" else None
+    if guard_dir:
+        (guard_dir / "sitecustomize.py").write_text(guard_prefix(workdir, True, guard_dir), encoding="utf-8")
+    script.write_text(guard_prefix(workdir, block_spawn=engine == "python", guard_dir=guard_dir) + code,
+                      encoding="utf-8")
 
     cmd = [sys.executable, "-I", str(script)]
     if engine == "sage":
@@ -214,6 +269,8 @@ def run_script(
                  "PYTHONDONTWRITEBYTECODE": "1", "MPLBACKEND": "Agg"}
     if env:
         child_env.update(env)
+    if guard_dir:
+        child_env["PYTHONPATH"] = str(guard_dir.resolve())
 
     def limit_resources() -> None:  # pragma: no cover - runs in the child
         if memory_mb and hasattr(resource, "RLIMIT_AS"):
@@ -237,6 +294,9 @@ def run_script(
         stdout = _text(exc.stdout)
         stderr = _text(exc.stderr) + f"\n[killed after {timeout:.0f}s]"
         exit_code = None
+    finally:
+        if guard_dir:
+            shutil.rmtree(guard_dir, ignore_errors=True)
     wall = time.monotonic() - start
 
     return ScriptResult(
