@@ -72,6 +72,15 @@ rewritten question summary. The
 conversation is discarded; only the write-back persists. `--provider fake`
 exists for offline tests.
 
+To read what the runs produced:
+
+```bash
+mathresearch --dir ~/research report runs --last 5   # summaries, findings, reading notes, new questions
+mathresearch --dir ~/research report problems         # candidate problems by ladder status
+mathresearch --dir ~/research report questions        # the agenda by priority
+mathresearch --dir ~/research report runs --last 20 > ~/research/report.md   # save as Markdown
+```
+
 Provider adapters live in `mathresearch/providers/`: `anthropic_messages.py`
 (Claude Messages API, `output_config.format` JSON schema, strict tools) and
 `openai_responses.py` (Responses API, `store: false`, strict `text.format`,
