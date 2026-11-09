@@ -9,6 +9,7 @@ or to show super-polynomial growth, on a size sweep.
 from .families import FAMILIES, Instance, ProblemFamily, get_family
 from .attacks import ATTACKS, Attack, AttackResult, get_attack
 from .sweep import CostCurve, sweep
+from . import isomorphism  # noqa: E402,F401  (registers tensor_iso, atfe and their attacks)
 
 __all__ = ["FAMILIES", "Instance", "ProblemFamily", "get_family", "ATTACKS", "Attack", "AttackResult",
            "get_attack", "CostCurve", "sweep"]

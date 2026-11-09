@@ -25,12 +25,12 @@ from typing import Any
 from .. import store
 from ..tools.sage_runner import parse_result, run_script
 from .attacks import AttackResult
-from .families import Instance, ProblemFamily, get_family
+from .families import FAMILIES, Instance, ProblemFamily, get_family
 from .sweep import sweep
 
 INSTANCE_FORMAT = """\
 instance.json = {
-  "family": "mq" | "matsumoto_imai",
+  "family": "mq" | "matsumoto_imai",   # tensor_iso and atfe have their own format (see sample_instance)
   "n": <number of variables>, "p": <field size (prime; 2 for matsumoto_imai)>,
   "params": {...family parameters, e.g. "m" equations, "theta"; never the secret...},
   "polys": [ poly_1, ..., poly_m ]      # the public system; a solution x in GF(p)^n makes every poly_k(x) == 0
@@ -44,9 +44,18 @@ Sampling more pairs (x, P(x)) is allowed and cheap: evaluate the public polys on
 def instance_to_json(instance: Instance) -> dict[str, Any]:
     """Public view of an instance: what an attacker legitimately has."""
     params = {k: v for k, v in instance.params.items() if k not in ("modulus",)}
-    polys = [[[list(m), c] for m, c in poly.items()] for poly in instance.public["polys"]]
-    return {"family": instance.family, "n": instance.params["n"], "p": instance.params["p"],
-            "params": params, "polys": polys}
+    data = {"family": instance.family, "n": instance.params["n"], "p": instance.params["p"], "params": params}
+    if "polys" in instance.public:
+        data["polys"] = [[[list(m), c] for m, c in poly.items()] for poly in instance.public["polys"]]
+    else:
+        data.update(FAMILIES[instance.family]().public_json(instance))
+    return data
+
+
+def instance_format(family_name: str) -> str:
+    """What instance.json holds for a family, and what the script must print."""
+    from .isomorphism import INSTANCE_FORMATS  # noqa: PLC0415
+    return INSTANCE_FORMATS.get(family_name, INSTANCE_FORMAT)
 
 
 class ScriptAttack:
@@ -68,7 +77,7 @@ class ScriptAttack:
         self.code_sha256 = hashlib.sha256(code.encode()).hexdigest()
 
     def applies(self, family: ProblemFamily) -> bool:
-        return family.name in ("mq", "matsumoto_imai")
+        return family.name in FAMILIES
 
     def run(self, family: ProblemFamily, instance: Instance, time_limit: float) -> AttackResult:
         base = Path(self.workdir) if self.workdir else Path(tempfile.gettempdir())
@@ -79,7 +88,8 @@ class ScriptAttack:
         res = run_script(self.code, engine=self.engine, timeout=time_limit, memory_mb=self.memory_mb, cwd=cwd)
         seconds = time.perf_counter() - start
         data = parse_result(res.stdout)
-        solution = _int_list(data.get("solution")) if isinstance(data, dict) else None
+        decode = getattr(family, "decode", _int_list)
+        solution = decode(data.get("solution")) if isinstance(data, dict) else None
         work = int(data.get("work") or 0) if isinstance(data, dict) and str(data.get("work", 0)).isdigit() else 0
         ok = solution is not None and family.verify(instance, solution)
         notes = ""

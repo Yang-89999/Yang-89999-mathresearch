@@ -441,7 +441,7 @@ def _family_kwargs(args: dict[str, Any]) -> dict[str, Any]:
 
 def _sample_instance(args: dict[str, Any], ctx: ToolContext) -> str:
     from ..lab import get_family
-    from ..lab.script_attack import INSTANCE_FORMAT, instance_to_json
+    from ..lab.script_attack import instance_format, instance_to_json
 
     try:
         family = get_family(args["family"], **_family_kwargs(args))
@@ -452,7 +452,7 @@ def _sample_instance(args: dict[str, Any], ctx: ToolContext) -> str:
     text = json.dumps(data)
     if len(text) > 12000:
         text = text[:12000] + " ..."
-    return f"{INSTANCE_FORMAT}\nSample (public part only; the planted solution is withheld):\n{text}"
+    return f"{instance_format(family.name)}\nSample (public part only; the planted solution is withheld):\n{text}"
 
 
 def _submit_attack(args: dict[str, Any], ctx: ToolContext) -> str:
@@ -485,12 +485,13 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
     "sample_instance": (
         ToolSpec(
             name="sample_instance",
-            description="Generate one public instance of a problem family (mq or matsumoto_imai) in the exact JSON "
+            description="Generate one public instance of a problem family (mq, matsumoto_imai, tensor_iso, atfe) in "
+                        "the exact JSON "
                         "format a submitted attack script receives, with the format documented. Use it to study the "
                         "structure of the public map in run_script before writing an attack.",
             input_schema={"type": "object", "properties": {
                 "family": {"type": "string"},
-                "size": {"type": "integer", "description": "n (number of variables)"},
+                "size": {"type": "integer", "description": "n (variables for mq; dimension for tensor_iso and atfe)"},
                 "seed": {"type": "integer"},
                 "p": {"type": "integer"}, "ratio": {"type": "number"}, "theta": {"type": "integer"}}},
         ), _sample_instance),
@@ -502,7 +503,9 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
                         "claimed solution, sweeps the sizes for a cost curve, records an experiment and a finding, "
                         "and registers the attack when it works. Verdict 'broken' needs success at every size with "
                         "polynomial-like growth; report a deterministic 'work' count for a reliable fit. This is "
-                        "the only way to establish that you have broken something.",
+                        "the only way to establish that you have broken something. For tensor_iso and atfe the "
+                        "solution is the secret matrices (see sample_instance); use small sizes such as '4,5,6,7' "
+                        "with p=3.",
             input_schema={"type": "object", "properties": {
                 "name": {"type": "string", "description": "identifier, e.g. bilinear_relations_v1"},
                 "code": {"type": "string", "description": "full script; reads instance.json, prints RESULT: {...}"},
@@ -581,14 +584,17 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
             name="run_attack",
             description="Run one attack (or all applicable attacks) from the attack lab against a problem family "
                         "over a range of sizes and get the cost curve. Families: mq (params p, ratio = m/n), "
-                        "matsumoto_imai. Attacks: exhaustive_search, linearization, patarin_linearization_equations, "
-                        "groebner_sage, or all. Recorded as an experiment.",
+                        "matsumoto_imai, tensor_iso (3-tensor isomorphism, param p), atfe (alternating trilinear "
+                        "form equivalence, param p). Attacks: exhaustive_search, linearization, "
+                        "patarin_linearization_equations, groebner_sage (MQ-type families); iso_guess_linear, "
+                        "iso_rank_filter (tensor_iso, atfe); or all. Recorded as an experiment.",
             input_schema={"type": "object", "properties": {
                 "family": {"type": "string"},
                 "attack": {"type": "string", "description": "attack name or 'all'"},
                 "sizes": {"type": "string", "description": "comma-separated sizes, e.g. '4,6,8,10'"},
                 "seconds_per_size": {"type": "number"},
-                "p": {"type": "integer", "description": "field size for mq (prime); 2 for matsumoto_imai"},
+                "p": {"type": "integer", "description": "field size (prime); 2 for matsumoto_imai; 3 is a good "
+                                                        "start for tensor_iso and atfe"},
                 "ratio": {"type": "number", "description": "equations per variable for mq"}}},
         ), _run_attack),
     "ladder_evaluate": (
