@@ -14,6 +14,7 @@
     mathresearch lessons list              lessons from experts' published work (after catalog load)
     mathresearch lessons ingest            fetch the papers behind the lessons and queue seed reads
     mathresearch units search 'Groebner'   search the knowledge base
+    mathresearch report runs|problems|questions   read what the system found (Markdown; add > file.md to save)
 """
 
 from __future__ import annotations
@@ -184,6 +185,23 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"\n{len(outcomes)} cycles, {failed} failed, ${cost:.3f} this invocation "
           f"(${s['usd_today']:.2f} today, ${s['usd_total']:.2f} in total)")
     return 1 if failed and failed == len(outcomes) else 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    from . import report
+
+    ws = _workspace(args)
+    if not (ws / DB_FILE).exists():
+        print(f"no database at {ws / DB_FILE}; run 'mathresearch init' first", file=sys.stderr)
+        return 1
+    conn = db.connect(ws / DB_FILE)
+    if args.report_command == "runs":
+        print(report.runs(conn, last=args.last), end="")
+    elif args.report_command == "problems":
+        print(report.problems(conn, include_dead=args.all), end="")
+    else:
+        print(report.questions(conn, status=args.status, limit=args.limit), end="")
+    return 0
 
 
 def cmd_catalog_load(args: argparse.Namespace) -> int:
@@ -499,6 +517,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--allow-unpriced", action="store_true",
                    help="run a model with no price in the charter, under the token cap only")
     s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("report", help="read what the system found: recent runs, candidates, the agenda")
+    rs = s.add_subparsers(dest="report_command", required=True)
+    r = rs.add_parser("runs", help="recent runs with their summaries, findings, reading notes and new questions")
+    r.add_argument("--last", type=int, default=5, help="how many runs, newest first (default 5)")
+    r = rs.add_parser("problems", help="candidate problems by ladder status")
+    r.add_argument("--all", action="store_true", help="include broken, duplicate and abandoned candidates")
+    r = rs.add_parser("questions", help="the agenda by priority")
+    r.add_argument("--status", default="open", choices=["open", "blocked", "running", "closed", "abandoned"])
+    r.add_argument("--limit", type=int, default=30)
+    s.set_defaults(func=cmd_report)
 
     s = sub.add_parser("catalog", help="catalog commands")
     cs = s.add_subparsers(dest="catalog_command", required=True)
