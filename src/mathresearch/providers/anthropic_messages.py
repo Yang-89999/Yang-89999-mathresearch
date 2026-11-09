@@ -49,9 +49,12 @@ def from_wire(response: Any) -> ChatResponse:
     if stop not in ("end_turn", "tool_use", "max_tokens", "refusal"):
         stop = "other"
     u = response.usage
-    usage = Usage(input_tokens=getattr(u, "input_tokens", 0) or 0,
+    # Anthropic reports uncached input, cache reads and cache writes separately; normalise to a total.
+    read = getattr(u, "cache_read_input_tokens", 0) or 0
+    written = getattr(u, "cache_creation_input_tokens", 0) or 0
+    usage = Usage(input_tokens=(getattr(u, "input_tokens", 0) or 0) + read + written,
                   output_tokens=getattr(u, "output_tokens", 0) or 0,
-                  cached_input_tokens=getattr(u, "cache_read_input_tokens", 0) or 0)
+                  cached_input_tokens=read, cache_write_tokens=written)
     return ChatResponse(blocks=blocks, stop_reason=stop, usage=usage, raw=list(response.content))
 
 

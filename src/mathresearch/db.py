@@ -21,7 +21,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), isolation_level=None)  # autocommit; use explicit BEGIN when needed
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA busy_timeout = 30000")  # parallel workers share the file
     migrate(conn)
     return conn
 
