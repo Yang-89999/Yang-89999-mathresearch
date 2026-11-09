@@ -36,6 +36,10 @@ class ToolContext:
 Executor = Callable[[dict[str, Any], ToolContext], str]
 
 
+MAX_DEPS_SHOWN = 8
+DEP_CHARS = 700
+
+
 def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
     hits = store.search_units(ctx.conn, args["query"], limit=int(args.get("limit", 10)))
     if not hits:
@@ -44,6 +48,10 @@ def _search_units(args: dict[str, Any], ctx: ToolContext) -> str:
     for u in hits:
         lines.append(f"[{u['id']}] {u['kind']} {u.get('label') or ''} {u.get('title') or ''}".strip())
         lines.append("  " + (u["statement"][:400] + ("..." if len(u["statement"]) > 400 else "")))
+        deps = [d for d in (store.get(ctx.conn, "units", i) for i in (u.get("depends_on") or [])) if d]
+        if deps:
+            lines.append("  uses: " + ", ".join(f"[{d['id']}] {d['kind']} {d.get('label') or ''}".strip()
+                                                for d in deps) + " (open_unit shows their statements)")
     return "\n".join(lines)
 
 
@@ -127,6 +135,13 @@ def _open_unit(args: dict[str, Any], ctx: ToolContext) -> str:
     out = {k: u.get(k) for k in ("id", "kind", "label", "title", "statement", "hypotheses", "notation",
                                   "proof_sketch", "depends_on", "anchor", "computational_notes")}
     out["source"] = {"id": src["id"], "title": src["title"], "year": src.get("year")} if src else None
+    # A statement is read with what it is built on: the definitions, lemmas and equations it refers to.
+    deps = [d for d in (store.get(ctx.conn, "units", i) for i in (u.get("depends_on") or [])[:MAX_DEPS_SHOWN]) if d]
+    out["uses"] = [{"id": d["id"], "kind": d["kind"], "label": d.get("label"), "title": d.get("title"),
+                    "statement": d["statement"][:DEP_CHARS]} for d in deps]
+    if out.pop("proof_sketch", None):
+        out["proof"] = "recorded; follow with include_proof true to read it"
+    out["more"] = "follow shows what uses this unit, what it cites and its proof" if u.get("source_id") else None
     return json.dumps(out, ensure_ascii=False, indent=1, default=str)
 
 
@@ -583,8 +598,9 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
     "open_unit": (
         ToolSpec(
             name="open_unit",
-            description="Open one knowledge unit in full: exact statement, hypotheses, notation, proof sketch, "
-                        "dependencies and source anchor.",
+            description="Open one knowledge unit in full: exact statement, hypotheses, notation and source "
+                        "anchor, together with the statements of the definitions, lemmas and equations it refers to "
+                        "('uses'), so a theorem is never read without what it is built on.",
             input_schema={"type": "object", "properties": {"unit_id": {"type": "string"}}},
         ), _open_unit),
     "run_script": (

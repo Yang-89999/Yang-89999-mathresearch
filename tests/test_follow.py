@@ -95,3 +95,16 @@ def test_relink_fills_in_sources_ingested_before(tmp_path, capsys):
     assert lem["depends_on"] == [units[0]["id"]] and lem["cites"] == ["KS99", "Pat95"] and lem["proof_sketch"]
     assert main(["--dir", str(tmp_path), "units", "follow", units[2]["id"], "--proof"]) == 0
     assert "Proof:" in capsys.readouterr().out
+
+
+def test_open_unit_and_search_bring_the_dependencies_along(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    _, (d, lem, thm) = _ingest(conn, tmp_path)
+    q = store.get(conn, "questions", store.insert(conn, "questions", kind="learn", lane="harvest", title="Q"))
+    ctx = registry.ToolContext(conn=conn, workspace=tmp_path, question=q, run_id="r")
+    import json
+    opened = json.loads(registry.execute("open_unit", {"unit_id": lem["id"]}, ctx)[0])
+    assert [x["id"] for x in opened["uses"]] == [d["id"]] and "hidden subrepresentation" in opened["uses"][0]["statement"]
+    assert opened["proof"].startswith("recorded") and "proof_sketch" not in opened
+    hits, _ = registry.execute("search_units", {"query": "MinRank", "limit": 5}, ctx)
+    assert f"uses: [{lem['id']}] lemma" in hits
