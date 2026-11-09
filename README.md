@@ -69,8 +69,27 @@ the worker's context from the database, runs the model with tools
 write-back: findings with evidence, new questions with what sparked them (a knowledge gap opens a `learn`
 question that blocks its parent), candidate problems, reading notes, paper cards, weakness audits, and the
 rewritten question summary. The
-conversation is discarded; only the write-back persists. `--provider fake`
+conversation is not research memory; only the write-back persists. `--provider fake`
 exists for offline tests.
+
+### Memory
+
+Everything a run writes back stays in `research.db`: findings with evidence, questions, reading notes,
+paper cards, candidates, experiments with their results, and each run's tokens and cost. Storage is not the
+limit (a run adds tens of kilobytes); what a worker can see in one run is. So each run gets the slice linked to
+its question, and searches the rest: `search_units` over the papers, and `search_findings` over everything
+earlier runs recorded on any branch of the agenda. The same search is on the command line:
+
+```bash
+mathresearch --dir ~/research memory search 'MinRank'
+```
+
+Each run's whole conversation (messages, tool calls, tool results) is also saved for you to audit, as
+`<workspace>/transcripts/<run id>.json.gz`. Workers never read transcripts. Replay one with
+
+```bash
+mathresearch --dir ~/research transcript run_...
+```
 
 Provider adapters live in `mathresearch/providers/`: `anthropic_messages.py`
 (Claude Messages API, `output_config.format` JSON schema, strict tools) and

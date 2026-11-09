@@ -108,6 +108,41 @@ def search_units(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[
     return [_decode("units", r) for r in rows]
 
 
+MEMORY_FTS = {"findings": ("findings", "findings_fts"), "questions": ("questions", "questions_fts"),
+              "notes": ("reading_notes", "notes_fts"), "problems": ("problems", "problems_fts")}
+
+
+def _loose_query(query: str) -> str:
+    words = [w for w in "".join(ch if ch.isalnum() else " " for ch in query).split() if len(w) > 1]
+    return " OR ".join(f'"{w}"' for w in dict.fromkeys(words[:16]))
+
+
+def search_memory(conn: sqlite3.Connection, query: str, kinds: Iterable[str] | None = None,
+                  limit: int = 20) -> list[tuple[str, dict[str, Any], float]]:
+    """BM25 search over the system's own memory. Returns (kind, row, score), best first across kinds.
+
+    The query is tried as FTS5 syntax first; if it is malformed or matches nothing, its words are ORed."""
+    kinds = [k for k in (kinds or MEMORY_FTS) if k in MEMORY_FTS]
+    hits: list[tuple[str, dict[str, Any], float]] = []
+    for attempt in (query, _loose_query(query)):
+        if not attempt.strip():
+            continue
+        hits = []
+        for kind in kinds:
+            table, fts = MEMORY_FTS[kind]
+            try:
+                rows = conn.execute(
+                    f"SELECT t.*, bm25({fts}) AS score FROM {fts} JOIN {table} t ON t.rowid = {fts}.rowid "
+                    f"WHERE {fts} MATCH ? ORDER BY score LIMIT ?", (attempt, limit)).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+            hits += [(kind, _decode(table, r), r["score"]) for r in rows]
+        if hits:
+            break
+    hits.sort(key=lambda h: h[2])
+    return hits[:limit]
+
+
 # -- agenda helpers -----------------------------------------------------------
 
 def open_questions(conn: sqlite3.Connection, lane: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
