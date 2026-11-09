@@ -89,7 +89,24 @@ mathresearch --dir ~/research report runs --last 5   # summaries, findings, read
 mathresearch --dir ~/research report problems         # candidate problems by ladder status
 mathresearch --dir ~/research report questions        # the agenda by priority
 mathresearch --dir ~/research report runs --last 20 > ~/research/report.md   # save as Markdown
+mathresearch --dir ~/research report trend            # discovery metrics per day (--by batch --batch 20)
 ```
+
+### Is anything new being found?
+
+`report trend` counts what is hard to fake, per day or per batch of runs:
+- candidates proposed
+- how far each got on the ladder (well defined, not trivially broken by the lab's attacks)
+- how many a known-result check showed to be a known problem in disguise
+- survivors: candidates that passed both
+- attack scripts submitted
+- cost per survivor
+
+Every new candidate gets a known-result check. The system lists the known problems the candidate most
+resembles (structured search over the catalog) and opens a separate `novelty_check` question. That question's
+job is to show the candidate is known: maps between instances, or a reference. Only that separate run can
+leave a candidate open on novelty. The run that proposed a candidate cannot certify its own idea as new.
+`report problems` shows each candidate's check.
 
 ### Memory
 

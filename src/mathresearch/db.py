@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -260,6 +260,11 @@ CREATE TABLE IF NOT EXISTS paper_requests (
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_paper_requests_status ON paper_requests(status);
+""",
+    8: """
+-- The known-result check on a candidate: {"closest": [{id, name, score}], "checks": [{relation, known_id,
+-- argument, run_id, question_id}], "verdict": unchecked|known|open}. See novelty.py.
+ALTER TABLE problems ADD COLUMN novelty TEXT;
 """,
 }
 

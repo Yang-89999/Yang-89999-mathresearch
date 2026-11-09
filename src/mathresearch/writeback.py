@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from . import reading, store
+from . import novelty, reading, store
 
 FINDING_KINDS = ["fact", "derivation", "experimental", "negative", "gap", "anomaly", "novelty"]
 EVIDENCE_KINDS = ["unit", "source", "experiment", "reasoning"]
@@ -122,6 +122,27 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
                                **{k: {"type": "string", "description": d} for k, d in reading.CARD_FIELDS.items()}},
             },
         },
+        "novelty_checks": {
+            "type": "array",
+            "description": "Known-result checks: is a candidate a known problem in disguise? On a novelty_check "
+                           "question this is the result. 'no_relative_found' and 'generalizes' count only there; "
+                           "showing a candidate is known counts from any run.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "problem_id": {"type": "string",
+                                   "description": "A problem id, or 'new:<candidate name>' for a candidate in this write-back."},
+                    "relation": {"type": "string", "enum": list(novelty.RELATIONS),
+                                 "description": "; ".join(f"{k}: {v}" for k, v in novelty.RELATIONS.items())},
+                    "known_problem_id": {"type": "string",
+                                         "description": "The known problem's id (prob_known_...); empty only for "
+                                                        "known_in_literature or no_relative_found."},
+                    "argument": {"type": "string",
+                                 "description": "The maps between instances, or where the literature has it, or which "
+                                                "relatives you tried and why each fails."},
+                },
+            },
+        },
         "weakness_audits": {
             "type": "array",
             "description": "Audit of candidate problems against weakness patterns (list_weakness_patterns). 'avoided' "
@@ -141,7 +162,7 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
     },
 }
 
-OPTIONAL_KEYS = ("reading_notes", "source_cards", "weakness_audits")
+OPTIONAL_KEYS = ("reading_notes", "source_cards", "weakness_audits", "novelty_checks")
 
 
 class WritebackError(ValueError):
@@ -230,6 +251,19 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
             priority=0.6, created_by_run=run_id, origin=origin, origin_id=origin_id,
         )
         created["questions"].append(nq)
+        # ... and its own known-result check, run separately: is it a known problem in disguise?
+        created["questions"].append(novelty.open_check(conn, pid, run_id=run_id,
+                                                       relatives_note=p.get("known_relatives") or None))
+
+    for c in data.get("novelty_checks", []):
+        target = (c.get("problem_id") or "").strip()
+        if target.lower().startswith("new:"):
+            target = new_problem_ids.get(target[4:].strip().lower(), "")
+        target = target or question.get("problem_id") or ""
+        warning = novelty.record(conn, target, c.get("relation", ""), (c.get("known_problem_id") or "").strip() or None,
+                                 c.get("argument", ""), run_id, question)
+        if warning:
+            created["warnings"].append(warning)
 
     audits: dict[str, list[dict[str, Any]]] = {}
     for a in data.get("weakness_audits", []):

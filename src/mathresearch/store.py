@@ -15,7 +15,7 @@ from .ids import new_id
 _JSON_COLUMNS = {
     "sources": {"authors", "identifiers", "domains", "card", "bibliography"},
     "units": {"hypotheses", "notation", "depends_on", "anchor", "domains", "cites"},
-    "problems": {"domains", "structure", "reductions", "best_attacks", "refs", "weakness_audit"},
+    "problems": {"domains", "structure", "reductions", "best_attacks", "refs", "weakness_audit", "novelty"},
     "attacks": {"applies_to", "requires", "refs"},
     "questions": {"domains"},
     "experiments": {"params", "result", "tool_versions"},

@@ -223,6 +223,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(report.runs(conn, last=args.last), end="")
     elif args.report_command == "problems":
         print(report.problems(conn, include_dead=args.all), end="")
+    elif args.report_command == "trend":
+        print(report.trend(conn, by=args.by, batch=args.batch), end="")
     else:
         print(report.questions(conn, status=args.status, limit=args.limit), end="")
     return 0
@@ -233,6 +235,10 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
 
     conn = db.connect(_workspace(args) / DB_FILE)
     counts = catalog.load(conn)
+    from . import novelty
+    opened = novelty.backfill(conn)   # candidates from before the known-result check get one now
+    if opened:
+        print(f"opened a known-result check for {len(opened)} earlier candidates")
     totals = db.table_counts(conn)
     print(f"inserted {counts['problems']} problems, {counts['attacks']} attacks, {counts['weakness_patterns']} "
           f"weakness patterns and {counts['lessons']} expert lessons (catalog now {totals['problems']} problems, "
@@ -711,6 +717,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--last", type=int, default=5, help="how many runs, newest first (default 5)")
     r = rs.add_parser("problems", help="candidate problems by ladder status")
     r.add_argument("--all", action="store_true", help="include broken, duplicate and abandoned candidates")
+    r = rs.add_parser("trend", help="discovery metrics per day or per batch of runs: candidates, known in disguise, "
+                                    "survivors of the lab and the known-result check, cost per survivor")
+    r.add_argument("--by", choices=["day", "batch"], default="day")
+    r.add_argument("--batch", type=int, default=20, help="runs per batch with --by batch (default 20)")
     r = rs.add_parser("questions", help="the agenda by priority")
     r.add_argument("--status", default="open", choices=["open", "blocked", "running", "closed", "abandoned"])
     r.add_argument("--limit", type=int, default=30)
