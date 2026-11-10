@@ -135,6 +135,19 @@ nothing actionable, record a negative finding saying why. The question cannot cl
 abstract is stored (an ePrint paper), do the same from the abstract and what you know of the paper, mark what
 comes from memory, and call request_paper when the full text would change what you conclude.
 """,
+    "propose": """
+# This is a propose question
+Too few candidate problems are in play, and everything downstream (the known-result check, the lab's attacks,
+the ladder) has nothing to work on. The deliverable is one to three candidate_problems, not findings about
+known problems. Work from the listed ideas: pick the most promising, read what sparked it (search_findings,
+read_source), and turn it into a problem with explicit objects, forward map, instance distribution, hidden
+data and verification. For each, name the closest known problem in the catalog (list the catalog first) and
+state the exact structural difference: which structure that the known attacks exploit is absent or changed.
+Prefer problems whose instances the lab can generate (list the lab families; a variant of a family can be
+tested with run_script from the first deepen run). Audit each against the weakness patterns. Do not argue
+hardness here and do not certify novelty: a separate known-result check does that. If none of the ideas
+gives a well-posed problem, say why in a negative finding. Keep the run short.
+""",
     "survey": """
 # This is a survey (browsing)
 Browse widely but shallowly: paper cards and abstracts (read_source 'card', search_literature), not full

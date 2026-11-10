@@ -10,7 +10,7 @@ import sqlite3
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -285,6 +285,52 @@ END;
 CREATE TRIGGER IF NOT EXISTS source_sections_fts_ad AFTER DELETE ON source_sections BEGIN
     INSERT INTO source_sections_fts(source_sections_fts, rowid, title, text) VALUES ('delete', old.rowid, old.title, old.text);
 END;
+""",
+    10: """
+-- Questions gain the 'propose' kind: the loop itself asks for new candidate problems when too few are in play.
+DROP TRIGGER IF EXISTS questions_fts_ai;
+DROP TRIGGER IF EXISTS questions_fts_ad;
+DROP TRIGGER IF EXISTS questions_fts_au;
+CREATE TABLE questions_v10 (
+    id          TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL CHECK (kind IN ('learn', 'explore', 'investigate', 'attack', 'novelty_check', 'survey',
+                                             'seed', 'propose')),
+    lane        TEXT NOT NULL CHECK (lane IN ('harvest', 'deepen', 'open')),
+    status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'blocked', 'running', 'closed', 'abandoned')),
+    title       TEXT NOT NULL,
+    body        TEXT,
+    summary     TEXT,
+    parent_id   TEXT REFERENCES questions(id) ON DELETE SET NULL,
+    problem_id  TEXT REFERENCES problems(id) ON DELETE SET NULL,
+    domains     TEXT,
+    priority    REAL NOT NULL DEFAULT 0.5,
+    runs        INTEGER NOT NULL DEFAULT 0,
+    created_by_run TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    closed_at   TEXT,
+    origin      TEXT,
+    origin_id   TEXT
+);
+INSERT INTO questions_v10 (rowid, id, kind, lane, status, title, body, summary, parent_id, problem_id, domains,
+                           priority, runs, created_by_run, created_at, updated_at, closed_at, origin, origin_id)
+    SELECT rowid, id, kind, lane, status, title, body, summary, parent_id, problem_id, domains, priority, runs,
+           created_by_run, created_at, updated_at, closed_at, origin, origin_id FROM questions;
+DROP TABLE questions;
+ALTER TABLE questions_v10 RENAME TO questions;
+CREATE INDEX IF NOT EXISTS idx_questions_pick ON questions(status, lane, priority);
+CREATE INDEX IF NOT EXISTS idx_questions_origin ON questions(origin, origin_id);
+CREATE TRIGGER IF NOT EXISTS questions_fts_ai AFTER INSERT ON questions BEGIN
+    INSERT INTO questions_fts(rowid, id, title, body, summary) VALUES (new.rowid, new.id, new.title, new.body, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS questions_fts_ad AFTER DELETE ON questions BEGIN
+    INSERT INTO questions_fts(questions_fts, rowid, id, title, body, summary) VALUES ('delete', old.rowid, old.id, old.title, old.body, old.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS questions_fts_au AFTER UPDATE ON questions BEGIN
+    INSERT INTO questions_fts(questions_fts, rowid, id, title, body, summary) VALUES ('delete', old.rowid, old.id, old.title, old.body, old.summary);
+    INSERT INTO questions_fts(rowid, id, title, body, summary) VALUES (new.rowid, new.id, new.title, new.body, new.summary);
+END;
+INSERT INTO questions_fts(questions_fts) VALUES ('rebuild');
 """,
 }
 

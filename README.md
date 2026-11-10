@@ -108,6 +108,17 @@ job is to show the candidate is known: maps between instances, or a reference. O
 leave a candidate open on novelty. The run that proposed a candidate cannot certify its own idea as new.
 `report problems` shows each candidate's check.
 
+The loop keeps candidates coming and works on them first:
+
+- While fewer than `candidate_target` candidates are in play (charter; default 4), the loop opens a `propose`
+  question, at most one per `propose_every_runs` runs (default 3). It lists the ideas from reading and
+  experiments that have not become candidates yet, and it closes only with a candidate or a stated reason.
+- In the deepen lane a known-result check runs before anything else, then questions about a candidate in
+  play, then questions about known problems.
+- Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate
+  written in another area's words still meets it. `catalog load` updates the lists of candidates whose check
+  has not run yet.
+
 ### Memory
 
 Everything a run writes back stays in `research.db`: findings with evidence, questions, reading notes,

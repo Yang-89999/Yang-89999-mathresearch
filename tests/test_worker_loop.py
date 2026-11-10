@@ -145,7 +145,9 @@ def test_failed_run_leaves_question_open(tmp_path):
 def test_run_cycles_seeds_and_runs(tmp_path):
     conn = db.connect(tmp_path / "r.db")
     provider = FakeProvider([FakeProvider.final(_writeback(status="closed")) for _ in range(3)])
-    outcomes = run_cycles(conn, _charter(), provider, tmp_path, cycles=3, seed=1)
+    charter = _charter()
+    charter.candidate_target = 0          # the loop's own requests for candidates are tested separately
+    outcomes = run_cycles(conn, charter, provider, tmp_path, cycles=3, seed=1)
     assert len(outcomes) == 3 and all(o.status == "done" for o in outcomes)
     assert conn.execute("SELECT COUNT(*) AS n FROM questions WHERE status='closed'").fetchone()["n"] == 3
     assert db.table_counts(conn)["runs"] == 3

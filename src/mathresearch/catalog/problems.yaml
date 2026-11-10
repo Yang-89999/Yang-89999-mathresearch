@@ -10,7 +10,7 @@
   distribution: uniformly random coefficients, one planted solution (m ~ n for signatures, m > n for encryption)
   hidden: a common zero x
   verification: evaluate and compare; O(m n^2)
-  structure: {trapdoor: "none in the random case; schemes plant one (HFE, UOV, C*)"}
+  structure: {trapdoor: "none in the random case; schemes plant one (HFE, UOV, C*)", also_known_as: "solving a system of quadratic equations over a finite field; polynomial system solving; PoSSo; quadratic map inversion"}
   quantum_notes: no known abelian hidden-subgroup structure; best quantum speedups are Grover-type on the search components
   best_attacks: [{attack_id: atk_f4_f5_groebner, complexity: "exponential in n for m ~ n (degree of regularity); polynomial once m >= n(n+1)/2 via linearization"}, {attack_id: atk_hybrid_bfp, complexity: "guess k variables then Groebner; best known for q > 2"}]
   refs: ["Garey, Johnson 1979 (NP-completeness of MQ over GF(2))", "Faugere 1999 F4; Faugere 2002 F5", "Bettale, Faugere, Perret 2009 hybrid approach"]
@@ -24,7 +24,7 @@
   distribution: random S, T affine bijections; random HFE polynomial of degree <= D
   hidden: a preimage, or the secret (S, F, T)
   verification: evaluate the public map
-  structure: {trapdoor: "root-finding of the univariate F (Berlekamp) given the secret"}
+  structure: {trapdoor: "root-finding of the univariate F (Berlekamp) given the secret", also_known_as: "hidden field equations; big-field multivariate scheme; univariate polynomial of bounded degree over an extension field hidden by affine maps; low Q-rank central map"}
   quantum_notes: no exploited abelian structure; classical structural attacks dominate
   best_attacks: [{attack_id: atk_kipnis_shamir_minrank, complexity: "MinRank with target rank ceil(log_q D)"}, {attack_id: atk_f4_f5_groebner, complexity: "degree of regularity bounded by about log_q(D), so Groebner is polynomial for fixed D (Faugere-Joux 2003)"}]
   refs: ["Patarin 1996 Eurocrypt", "Kipnis, Shamir 1999 Crypto (MinRank attack)", "Faugere, Joux 2003 Crypto (HFE Challenge 1 broken)"]
@@ -37,7 +37,7 @@
   distribution: random affine bijections S, T; theta with gcd(1+q^theta, q^n - 1) = 1
   hidden: a preimage
   verification: evaluate the public map
-  structure: {trapdoor: "the inverse exponent h with h(1+q^theta) = 1 mod q^n - 1"}
+  structure: {trapdoor: "the inverse exponent h with h(1+q^theta) = 1 mod q^n - 1", also_known_as: "C* scheme; monomial map x^(q^theta+1) over an extension field hidden by two affine maps; SFLASH"}
   quantum_notes: irrelevant, broken classically
   best_attacks: [{attack_id: atk_patarin_linearization_equations, complexity: "polynomial: O(n^6) linear algebra after collecting bilinear relations"}]
   refs: ["Matsumoto, Imai 1988 Eurocrypt", "Patarin 1995 Crypto (linearization equations)"]
@@ -51,7 +51,7 @@
   distribution: random central map with no oil x oil terms, random linear S
   hidden: the oil subspace O (key recovery), or a preimage (forgery)
   verification: evaluate the public map
-  structure: {trapdoor: "fixing vinegar variables makes the system linear in the oil variables"}
+  structure: {trapdoor: "fixing vinegar variables makes the system linear in the oil variables", also_known_as: "oil and vinegar; quadratic map vanishing on a hidden subspace; hidden oil subspace; MAYO; whipped map"}
   quantum_notes: no exploited abelian structure
   best_attacks: [{attack_id: atk_kipnis_shamir_uov, complexity: "q^(v-m) poly(n); why v > m is required"}, {attack_id: atk_beullens_intersection, complexity: "improves on Kipnis-Shamir when v < 2m"}, {attack_id: atk_reconciliation, complexity: "direct attack on key recovery"}]
   refs: ["Patarin 1997 (Oil and Vinegar)", "Kipnis, Shamir 1998 Crypto (balanced OV broken)", "Kipnis, Patarin, Goubin 1999 Eurocrypt (UOV)", "Beullens 2021 Eurocrypt (intersection attack)"]
@@ -64,7 +64,7 @@
   distribution: NIST round-3 parameter sets
   hidden: the layered oil subspaces
   verification: evaluate the public map
-  structure: {trapdoor: "layer-by-layer linearisation"}
+  structure: {trapdoor: "layer-by-layer linearisation", also_known_as: "layered oil and vinegar; nested hidden subspaces; multi-layer UOV"}
   quantum_notes: irrelevant, broken classically
   best_attacks: [{attack_id: atk_beullens_rectangular_minrank, complexity: "rectangular MinRank; Rainbow NIST level I broken in a weekend (Beullens 2022)"}]
   refs: ["Ding, Schmidt 2005 ACNS", "Beullens 2022 Crypto (Breaking Rainbow takes a weekend on a laptop)"]
@@ -77,7 +77,7 @@
   distribution: random matrices with a planted low-rank combination
   hidden: coefficients (a_1..a_k) with rank(sum a_i M_i) <= r
   verification: compute the rank of the combination
-  structure: {trapdoor: "none intrinsic"}
+  structure: {trapdoor: "none intrinsic", also_known_as: "low-rank linear combination of matrices; rank decoding; rank metric decoding; matrix pencil of low rank; Kipnis-Shamir; support minors"}
   quantum_notes: no exploited abelian structure
   best_attacks: [{attack_id: atk_kipnis_shamir_minrank, complexity: "bilinear modelling"}, {attack_id: atk_minors_modelling, complexity: "Groebner on r+1 minors (Faugere, Levy-dit-Vehel, Perret 2008)"}, {attack_id: atk_support_minors, complexity: "best known; Bardet et al. 2020"}]
   refs: ["Buss, Frandsen, Shallit 1999 (NP-hardness)", "Kipnis, Shamir 1999", "Bardet, Bros, Cabarcas, Gaborit, Perlner, Smith-Tone, Tillich, Verbel 2020 Asiacrypt (support minors)"]
@@ -90,7 +90,7 @@
   distribution: random polynomial tuple and random bijections
   hidden: the bijections S (and T)
   verification: apply the recovered maps and compare
-  structure: {group_action: "GL_n x GL_m acting on polynomial tuples; basis of identification schemes"}
+  structure: {group_action: "GL_n x GL_m acting on polynomial tuples; basis of identification schemes", also_known_as: "polynomial isomorphism; equivalence of quadratic maps; quadratic maps conjugacy; QMLE; IP1S; IP2S; change of variables hiding a polynomial map; cubic form equivalence"}
   quantum_notes: a non-abelian group action; no Shor-type attack known; related to tensor isomorphism
   best_attacks: [{attack_id: atk_groebner_ip, complexity: "IP1S mostly polynomial (Bouillaguet, Faugere, Fouque, Perret 2011); IP with two secrets harder"}]
   refs: ["Patarin 1996 Eurocrypt", "Faugere, Perret 2006 Eurocrypt", "Bouillaguet, Faugere, Fouque, Perret 2011 PKC"]
@@ -103,7 +103,7 @@
   distribution: random tensor and random group element
   hidden: the group element
   verification: apply and compare
-  structure: {group_action: "GL_n on alternating trilinear forms; cryptographic group action behind ALTEQ and MEDS"}
+  structure: {group_action: "GL_n on alternating trilinear forms; cryptographic group action behind ALTEQ and MEDS", also_known_as: "3-tensor isomorphism; trilinear form equivalence; tuple of matrices under simultaneous left and right multiplication and mixing of the tuple; matrix space equivalence; matrix space isometry; matrix code equivalence (MCE); quiver or Kronecker representation with arrow mixing; GL_m x GL_n x GL_r acting on F^m x F^n x F^r; B_i = sum_j R_ij P A_j Q; group isomorphism of p-groups of class 2; algebra isomorphism; MEDS; ALTEQ"}
   quantum_notes: non-abelian action; TI-complete class; no known quantum polynomial algorithm
   best_attacks: [{attack_id: atk_graph_theoretic_ati, complexity: "Beullens 2023: graph-based attack reduced ALTEQ parameters"}, {attack_id: atk_groebner_ip, complexity: "algebraic modelling"}]
   refs: ["Grochow, Qiao 2021 ITCS (TI-completeness)", "Tang, Duong, Joux, Plantard, Qiao, Susilo 2022 (ALTEQ)", "Beullens 2023 Crypto (graph-theoretic algorithms for ATFE)"]
@@ -117,7 +117,7 @@
   distribution: random code, random monomial matrix
   hidden: the monomial map
   verification: check the generator matrices span the same code after the map
-  structure: {group_action: "monomial group acting on codes; basis of LESS"}
+  structure: {group_action: "monomial group acting on codes; basis of LESS", also_known_as: "permutation code equivalence; monomial equivalence of generator matrices; Hamming-metric code isometry; LESS; support splitting"}
   quantum_notes: non-abelian action
   best_attacks: [{attack_id: atk_leon_support_splitting, complexity: "Leon's algorithm; support splitting for PEP; Beullens' low-weight codeword attack for LEP"}]
   refs: ["Leon 1982", "Sendrier 2000 (support splitting)", "Biasse, Micheli, Persichetti, Santini 2020 (LESS)", "Beullens 2020 (LEP attack)"]
@@ -130,7 +130,7 @@
   distribution: random H, random e of weight w
   hidden: e
   verification: compute H e and the weight
-  structure: {trapdoor: "a hidden efficiently decodable code (McEliece); none for plain SDP"}
+  structure: {trapdoor: "a hidden efficiently decodable code (McEliece); none for plain SDP", also_known_as: "decoding a random linear code; low-weight codeword; learning parity with noise (LPN); information set decoding; McEliece; Niederreiter"}
   quantum_notes: Grover speedups on ISD only; no abelian structure
   best_attacks: [{attack_id: atk_information_set_decoding, complexity: "exponential in w: Prange, Stern, Dumer, BJMM, May-Ozerov"}]
   refs: ["Berlekamp, McEliece, van Tilborg 1978 (NP-hardness)", "Prange 1962", "Stern 1989", "Becker, Joux, May, Meurer 2012 Eurocrypt"]
@@ -143,7 +143,7 @@
   distribution: uniform A, secret s, Gaussian or bounded e
   hidden: s
   verification: check that b - A s is small
-  structure: {homomorphic: "additively homomorphic; basis of Kyber/ML-KEM, FHE", trapdoor: "lattice trapdoors (Ajtai, MP12)"}
+  structure: {homomorphic: "additively homomorphic; basis of Kyber/ML-KEM, FHE", trapdoor: "lattice trapdoors (Ajtai, MP12)", also_known_as: "learning with errors; noisy linear equations modulo q; bounded distance decoding on q-ary lattices; ring-LWE; module-LWE"}
   quantum_notes: worst-case to average-case reduction from lattice problems (Regev 2005, quantum); no known quantum break
   best_attacks: [{attack_id: atk_lattice_reduction_bkz, complexity: "primal/dual attacks via BKZ; cost 2^(0.292 beta) sieving"}, {attack_id: atk_arora_ge, complexity: "polynomial when the error is tiny relative to q"}]
   refs: ["Regev 2005 STOC", "Albrecht, Player, Scott 2015 (LWE estimator)", "Arora, Ge 2011 ICALP"]
@@ -156,7 +156,7 @@
   distribution: uniform A
   hidden: short nonzero x with A x = 0 mod q
   verification: compute A x and the norm of x
-  structure: {homomorphic: "basis of hash functions and Dilithium/ML-DSA signatures"}
+  structure: {homomorphic: "basis of hash functions and Dilithium/ML-DSA signatures", also_known_as: "short integer solution; short vector in the kernel of a random matrix modulo q; inhomogeneous SIS; module-SIS"}
   quantum_notes: worst-case reduction (Ajtai 1996); no known quantum break
   best_attacks: [{attack_id: atk_lattice_reduction_bkz, complexity: "find a short vector in the kernel lattice"}]
   refs: ["Ajtai 1996 STOC", "Micciancio, Regev 2007"]
@@ -169,7 +169,7 @@
   distribution: random small f, g
   hidden: f (and g)
   verification: check f h = g with f, g small
-  structure: {trapdoor: "the short vector (f, g) in the NTRU lattice"}
+  structure: {trapdoor: "the short vector (f, g) in the NTRU lattice", also_known_as: "ratio of two short polynomials in a quotient ring; short vector in a rank-2 module lattice; NTRU lattice"}
   quantum_notes: no known quantum break; overstretched parameters broken classically (Kirchner-Fouque, Ducas-van Woerden)
   best_attacks: [{attack_id: atk_lattice_reduction_bkz, complexity: "BKZ on the 2N-dimensional NTRU lattice; dense sublattice attacks when q is overstretched"}]
   refs: ["Hoffstein, Pipher, Silverman 1998 ANTS", "Kirchner, Fouque 2017 Eurocrypt", "Ducas, van Woerden 2021 Eurocrypt"]
@@ -182,7 +182,7 @@
   distribution: random ideal class
   hidden: the class (the secret key)
   verification: recompute the action
-  structure: {group_action: "a commutative (abelian) group action: enables non-interactive key exchange"}
+  structure: {group_action: "a commutative (abelian) group action: enables non-interactive key exchange", also_known_as: "class group action on supersingular curves over F_p; hard homogeneous space; vectorization; parallelization; commutative isogeny action; abelian hidden shift"}
   quantum_notes: abelian hidden-shift problem, so Kuperberg's algorithm applies in subexponential time; parameters must account for it
   best_attacks: [{attack_id: atk_kuperberg_hidden_shift, complexity: "quantum subexponential 2^O(sqrt(log N))"}, {attack_id: atk_meet_in_the_middle, complexity: "classical O(sqrt(N))"}]
   refs: ["Castryck, Lange, Martindale, Panny, Renes 2018 Asiacrypt", "Kuperberg 2005", "Bonnetain, Schrottenloher 2020 Eurocrypt"]
@@ -195,7 +195,7 @@
   distribution: random secret kernel
   hidden: the isogeny
   verification: recompute from the recovered kernel
-  structure: {trapdoor: "none; key exchange via commuting isogeny diagrams"}
+  structure: {trapdoor: "none; key exchange via commuting isogeny diagrams", also_known_as: "supersingular isogeny with torsion point images; isogeny recovery from auxiliary torsion; SIKE; Castryck-Decru; Kani"}
   quantum_notes: irrelevant, broken classically
   best_attacks: [{attack_id: atk_castryck_decru, complexity: "polynomial time via Kani's theorem on higher-dimensional isogenies (2022)"}]
   refs: ["Jao, De Feo 2011 PQCrypto", "Castryck, Decru 2023 Eurocrypt", "Maino, Martindale, Panny, Pope, Wesolowski 2023", "Robert 2023"]
@@ -208,7 +208,7 @@
   distribution: random key k in GF(p)
   hidden: k
   verification: recompute the sequence
-  structure: {homomorphic: "multiplicative structure of the Legendre symbol enables MPC-friendly PRFs"}
+  structure: {homomorphic: "multiplicative structure of the Legendre symbol enables MPC-friendly PRFs", also_known_as: "quadratic residue symbol sequence; Legendre symbol of shifted secret; power residue PRF"}
   quantum_notes: with quantum queries, key recovery is polynomial (Russell-Shparlinski / van Dam-Hallgren-Ip); classically subexponential-but-large attacks exist
   best_attacks: [{attack_id: atk_legendre_key_recovery, complexity: "Beullens, Beyne, Udovenko, Vitto 2020: O(p^(1/2) / M) with M queries; Kaluderovic, Kleinjung, Kostic 2020"}]
   refs: ["Damgard 1988 Crypto", "Grassi, Rechberger, Rotaru, Scholl, Smart 2016 (MPC-friendly PRF)", "Beullens, Beyne, Udovenko, Vitto 2020 ToSC"]

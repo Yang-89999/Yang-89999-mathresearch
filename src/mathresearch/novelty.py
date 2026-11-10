@@ -43,7 +43,7 @@ _STOP = {"the", "and", "for", "from", "with", "over", "that", "this", "where", "
 FIELDS = ("name", "objects", "forward_map", "distribution", "hidden", "verification")
 
 
-def _terms(text: str, limit: int = 24) -> list[str]:
+def _terms(text: str, limit: int = 60) -> list[str]:
     words = re.findall(r"[a-z][a-z0-9\-]{2,}", text.lower())
     out = []
     for w in words:
@@ -53,9 +53,14 @@ def _terms(text: str, limit: int = 24) -> list[str]:
     return out[:limit]
 
 
-def closest_known(conn: sqlite3.Connection, problem: dict[str, Any], k: int = 3) -> list[dict[str, Any]]:
-    """The k known problems that share the most specific vocabulary and domains with a candidate."""
+def closest_known(conn: sqlite3.Connection, problem: dict[str, Any], k: int = 5) -> list[dict[str, Any]]:
+    """The k known problems that share the most specific vocabulary and domains with a candidate. Each catalog
+    problem lists the disguises it is known under (structure.also_known_as), so a candidate phrased in another
+    area's words (a 'quiver representation with arrow mixing' for a 3-tensor) still meets it. A known problem
+    the proposer itself named as a relative is always on the list."""
     text = " ".join(str(problem.get(f) or "") for f in FIELDS)
+    relatives = " ".join(str(r.get("note") or "") for r in problem.get("reductions") or [] if isinstance(r, dict))
+    text = f"{text} {relatives}"
     terms = _terms(text)
     scores: dict[str, float] = {}
     names: dict[str, str] = {}
@@ -78,30 +83,70 @@ def closest_known(conn: sqlite3.Connection, problem: dict[str, Any], k: int = 3)
             if shared:
                 scores[kp["id"]] = scores.get(kp["id"], 0.0) + 0.5 * len(shared)
                 names[kp["id"]] = kp["name"]
-    best = sorted(scores, key=lambda i: -scores[i])[:k]
+    named = set()
+    if relatives:
+        low = relatives.lower()
+        for kp in store.select(conn, "problems", "status = 'known'"):
+            head = re.split(r"[(/]", kp["name"])[0].strip().lower()
+            if kp["id"].lower() in low or (len(head) > 3 and head in low):
+                named.add(kp["id"])
+                names[kp["id"]] = kp["name"]
+                scores[kp["id"]] = scores.get(kp["id"], 0.0) + 100.0
+    best = sorted(scores, key=lambda i: -scores[i])[:max(k, len(named))]
     return [{"id": i, "name": names[i], "score": round(scores[i], 3)} for i in best]
 
 
-def open_check(conn: sqlite3.Connection, problem_id: str, run_id: str | None = None,
-               relatives_note: str | None = None, priority: float = 0.7) -> str:
-    """Record the closest known problems on a new candidate and open its known-result check question."""
-    problem = store.get(conn, "problems", problem_id)
-    closest = closest_known(conn, problem)
-    store.update(conn, "problems", problem_id, novelty={"closest": closest, "checks": [], "verdict": "unchecked"})
+def _check_body(problem: dict[str, Any], closest: list[dict[str, Any]], relatives_note: str | None) -> str:
     listing = "\n".join(f"- {c['id']}: {c['name']}" for c in closest) or "- (no catalog problem shares its vocabulary)"
-    body = (f"Candidate {problem_id} ('{problem['name']}') was proposed in run {problem.get('created_by_run')}. "
+    return (f"Candidate {problem['id']} ('{problem['name']}') was proposed in run {problem.get('created_by_run')}. "
             f"Your job is adversarial: try to show it is a known problem in disguise.\n"
             f"Closest known problems by structure:\n{listing}\n"
             + (f"The proposer named these relatives: {relatives_note}\n" if relatives_note else "")
-            + "For each, try to write explicit maps between instances in both directions (or show it is a special "
+            + "The list is found by shared vocabulary, so it can miss a problem stated in another area's words: "
+            "also go through the whole catalog (list the known problems) and ask of each whether the candidate's "
+            "objects and group action are the same up to renaming. "
+            "For each, try to write explicit maps between instances in both directions (or show it is a special "
             "case). Search the textbooks first (search_units in: books), then papers and the literature. Record "
             "the outcome in novelty_checks: relation " + ", ".join(RELATIONS) + ", with the known problem id and "
             "the argument (the maps, or where the literature has it). Say 'no_relative_found' only after you "
             "have tried the closest ones; 'generalizes' needs the special case named.")
+
+
+def _relatives_note(problem: dict[str, Any]) -> str | None:
+    return "; ".join(r.get("note", "") for r in problem.get("reductions") or []
+                     if isinstance(r, dict) and r.get("note")) or None
+
+
+def open_check(conn: sqlite3.Connection, problem_id: str, run_id: str | None = None,
+               relatives_note: str | None = None, priority: float = 0.9) -> str:
+    """Record the closest known problems on a new candidate and open its known-result check question."""
+    problem = store.get(conn, "problems", problem_id)
+    closest = closest_known(conn, problem)
+    store.update(conn, "problems", problem_id, novelty={"closest": closest, "checks": [], "verdict": "unchecked"})
     return store.insert(conn, "questions", kind="novelty_check", lane="deepen", status="open",
                         title=f"Known-result check: is '{problem['name'][:80]}' a known problem in disguise?",
-                        body=body, problem_id=problem_id, domains=problem.get("domains"), priority=priority,
+                        body=_check_body(problem, closest, relatives_note or _relatives_note(problem)),
+                        problem_id=problem_id, domains=problem.get("domains"), priority=priority,
                         created_by_run=run_id, origin="prior")
+
+
+def refresh_unchecked(conn: sqlite3.Connection) -> list[str]:
+    """Recompute the closest known problems of candidates whose check has not run yet (the catalog or the
+    matching may have improved since), and rewrite the waiting check question. Returns the changed problem ids."""
+    changed = []
+    for p in store.select(conn, "problems", "novelty IS NOT NULL"):
+        nov = p.get("novelty") or {}
+        if nov.get("verdict") != "unchecked" or nov.get("checks"):
+            continue
+        closest = closest_known(conn, p)
+        if [c["id"] for c in closest] == [c["id"] for c in nov.get("closest") or []]:
+            continue
+        store.update(conn, "problems", p["id"], novelty={**nov, "closest": closest})
+        for q in store.select(conn, "questions", "kind = 'novelty_check' AND problem_id = ? AND status = 'open'",
+                              (p["id"],)):
+            store.update(conn, "questions", q["id"], body=_check_body(p, closest, _relatives_note(p)))
+        changed.append(p["id"])
+    return changed
 
 
 def record(conn: sqlite3.Connection, problem_id: str, relation: str, known_id: str | None, argument: str,
@@ -160,6 +205,5 @@ def backfill(conn: sqlite3.Connection) -> list[str]:
     marks = ",".join("?" for _ in ACTIVE)
     out = []
     for p in store.select(conn, "problems", f"status IN ({marks}) AND novelty IS NULL", ACTIVE):
-        note = "; ".join(r.get("note", "") for r in p.get("reductions") or [] if isinstance(r, dict)) or None
-        out.append(open_check(conn, p["id"], relatives_note=note))
+        out.append(open_check(conn, p["id"]))
     return out
