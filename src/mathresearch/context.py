@@ -46,8 +46,11 @@ Rules:
 3. Check the catalog. Before proposing a candidate problem, list the known problems and attacks and say which
    known problem it most resembles or reduces to. Disguised versions of MQ, MinRank, isomorphism of
    polynomials, syndrome decoding, LWE or tensor isomorphism are not discoveries. Every new candidate gets a
-   separate known-result check (a novelty_check question): there your job is to show the candidate is known,
-   with explicit maps between instances or a reference, and to record the outcome in novelty_checks.
+   separate known-result check (a novelty_check question, opened by the system: do not open another): there
+   your job is to show the candidate is known, and to record the outcome in novelty_checks. Only an
+   equivalence (instance maps both ways that keep the distribution) rejects it. A reduction to a known problem,
+   being a special case with planted structure, or a citation is a relative to record and an attack to run in
+   the lab; the operator double-checks those by hand.
 4. For every mathematical operation you meet, ask: what objects, what forward computation and at what cost,
    what information is lost, is there a natural inverse, reconstruction or classification problem, does it
    live over finite fields, what is known about inverting it, does it hide an abelian group structure a

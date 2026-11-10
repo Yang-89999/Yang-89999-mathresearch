@@ -59,7 +59,7 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": QUESTION_KINDS},
+                    "kind": {"type": "string", "enum": [k for k in QUESTION_KINDS if k != "novelty_check"]},
                     "lane": {"type": "string", "enum": LANES},
                     "title": {"type": "string"},
                     "body": {"type": "string", "description": "The question in full, including why it matters here."},
@@ -125,8 +125,8 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
         "novelty_checks": {
             "type": "array",
             "description": "Known-result checks: is a candidate a known problem in disguise? On a novelty_check "
-                           "question this is the result. 'no_relative_found' and 'generalizes' count only there; "
-                           "showing a candidate is known counts from any run.",
+                           "question this is the result. Only 'equivalent' rejects a candidate, and it "
+                           "counts from any run; every other relation counts only there.",
             "items": {
                 "type": "object",
                 "properties": {
@@ -280,6 +280,12 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
 
     blocked = False
     for q in data["new_questions"]:
+        if q["kind"] == "novelty_check":
+            # the system opens exactly one known-result check per candidate; a second one opened by an agent
+            # repeats it and cannot count (9 of 30 runs once went to such copies)
+            created["warnings"].append(f"known-result check question not opened (each candidate already has "
+                                       f"one): {q['title'][:80]}")
+            continue
         origin, origin_id = reading.resolve_origin(conn, q.get("sparked_by", "prior"), q.get("sparked_by_id", ""))
         nq = store.insert(
             conn, "questions", kind=q["kind"], lane=q["lane"], status="open", title=q["title"],

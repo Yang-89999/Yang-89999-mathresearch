@@ -80,7 +80,7 @@ def problems(conn: sqlite3.Connection, include_dead: bool = False) -> str:
     marks = ",".join("?" for _ in statuses)
     rows = store.select(conn, "problems", f"status IN ({marks})", statuses)
     if not rows:
-        return "No candidate problems yet."
+        return "No candidate problems in play.\n" + _settled(conn, include_dead)
     rows.sort(key=lambda p: (CANDIDATE_ORDER.index(p["status"]), p["created_at"]))
     out = [f"# Candidate problems ({len(rows)})", ""]
     for p in rows:
@@ -102,13 +102,35 @@ def problems(conn: sqlite3.Connection, include_dead: bool = False) -> str:
             if nov.get("closest"):
                 line += "; closest known: " + ", ".join(c["name"] for c in nov["closest"])
             out.append(_wrap(line, indent=""))
+            if nov.get("verdict") == "related" and last.get("argument"):
+                out.append(_wrap(f"to double-check by hand: {last['argument'][:600]}", indent=""))
         audit = p.get("weakness_audit") or {}
         if audit:
             from collections import Counter
             counts = Counter(v.get("status") if isinstance(v, dict) else v for v in audit.values())
             out.append("weakness audit: " + ", ".join(f"{k} {n}" for k, n in sorted(counts.items(), key=str)))
         out.append("")
-    return "\n".join(out).rstrip() + "\n"
+    return "\n".join(out).rstrip() + "\n" + _settled(conn, include_dead)
+
+
+def _settled(conn: sqlite3.Connection, already_listed: bool) -> str:
+    """One line per broken, duplicate or abandoned candidate with the reason, so a rejection can be judged."""
+    if already_listed:
+        return ""
+    rows = store.select(conn, "problems", "status IN ('broken', 'duplicate', 'abandoned')", order="created_at")
+    if not rows:
+        return ""
+    out = ["", f"# Settled candidates ({len(rows)})", ""]
+    for p in rows:
+        checks = (p.get("novelty") or {}).get("checks") or []
+        why = ""
+        if p["status"] == "duplicate" and checks:
+            c = checks[-1]
+            why = f"{c['relation']}{' ' + c['known_id'] if c.get('known_id') else ''}: {c.get('argument', '')[:240]}"
+        elif p["status"] == "duplicate" and p.get("parent_id"):
+            why = f"same as {p['parent_id']}"
+        out.append(_wrap(f"- [{p['status']}] {p['name']} ({p['id']}){': ' + why if why else ''}", indent=""))
+    return "\n".join(out) + "\n"
 
 
 def questions(conn: sqlite3.Connection, status: str = "open", limit: int = 30) -> str:
