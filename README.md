@@ -116,8 +116,9 @@ The loop keeps candidates coming and works on them first:
 - While fewer than `candidate_target` candidates are in play (charter; default 12), the loop opens a `propose`
   question, at most one per `propose_every_runs` runs (default 3). It lists the ideas from reading and
   experiments that have not become candidates yet, and it closes only with a candidate or a stated reason.
-- In the deepen lane a known-result check runs before anything else, then questions about a candidate in
-  play, then questions about known problems.
+- In the deepen lane, questions about a candidate in play (its definition, its attacks, its known-result
+  check) run before questions about known problems. While three or more such questions are waiting, the lane
+  gets at least half of the runs.
 - Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate
   written in another area's words still meets it. `catalog load` updates the lists of candidates whose check
   has not run yet.

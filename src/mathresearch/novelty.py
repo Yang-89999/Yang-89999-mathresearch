@@ -235,6 +235,23 @@ def reconsider(conn: sqlite3.Connection) -> list[str]:
     return out
 
 
+CHECK_TITLE = "Known-result check:"
+
+
+def drop_copies(conn: sqlite3.Connection) -> list[str]:
+    """Abandon open known-result check questions that agents opened themselves before that was blocked: each
+    candidate has the system's own check, and the copies repeat it without counting. Returns their ids."""
+    out = []
+    for q in store.select(conn, "questions", "kind = 'novelty_check' AND status IN ('open', 'blocked')"):
+        if q["title"].startswith(CHECK_TITLE):
+            continue
+        store.update(conn, "questions", q["id"], summary=((q.get("summary") or "") + "\nAbandoned: a copy of the "
+                     "candidate's own known-result check.").strip())
+        store.close_question(conn, q["id"], status="abandoned")
+        out.append(q["id"])
+    return out
+
+
 ACTIVE = ("idea", "well_defined", "not_trivially_broken", "not_known", "useful_structure", "human_review")
 
 
