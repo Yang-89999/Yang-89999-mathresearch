@@ -292,6 +292,14 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
             blocked = True
 
     status = data["status"]
+    if question.get("kind") == "propose" and status == "closed" and not created["problems"]:
+        negative = any(f["kind"] == "negative" for f in data["findings"])
+        if not negative:
+            status = "open"
+            why_not = ("a propose question closes with at least one candidate_problems entry, or a negative "
+                       "finding saying why none of the listed ideas gives a well-posed problem")
+            data = {**data, "summary": f"{data['summary']}\n[Not closed: {why_not}]".strip()}
+            created["warnings"].append(f"propose question kept open: {why_not}")
     if question.get("kind") == "seed" and status == "closed":
         why_not = _seed_incomplete(conn, question, data)
         if why_not:

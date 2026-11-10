@@ -239,6 +239,9 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
     opened = novelty.backfill(conn)   # candidates from before the known-result check get one now
     if opened:
         print(f"opened a known-result check for {len(opened)} earlier candidates")
+    refreshed = novelty.refresh_unchecked(conn)
+    if refreshed:
+        print(f"updated the closest known problems of {len(refreshed)} candidates waiting for their check")
     totals = db.table_counts(conn)
     print(f"inserted {counts['problems']} problems, {counts['attacks']} attacks, {counts['weakness_patterns']} "
           f"weakness patterns and {counts['lessons']} expert lessons (catalog now {totals['problems']} problems, "
