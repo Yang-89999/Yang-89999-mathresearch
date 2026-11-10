@@ -40,8 +40,9 @@ def test_problems_and_questions_reports(tmp_path):
     conn = db.connect(tmp_path / "r.db")
     _world(conn)
     text = report.problems(conn)
-    assert "Planted subrepresentation" in text and "Known MQ" not in text and "Dead idea" not in text
-    assert "Dead idea" in report.problems(conn, include_dead=True)
+    assert "Planted subrepresentation" in text and "Known MQ" not in text and "] Dead idea  (" not in text
+    assert "# Settled candidates (1)" in text and "- [broken] Dead idea" in text     # one line, with the reason
+    assert "## [broken] Dead idea" in report.problems(conn, include_dead=True)
     q = report.questions(conn)
     assert q.index("Attack the planted problem") < q.index("Read about quivers") and "from reference" in q
 

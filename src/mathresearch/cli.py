@@ -239,6 +239,10 @@ def cmd_catalog_load(args: argparse.Namespace) -> int:
     opened = novelty.backfill(conn)   # candidates from before the known-result check get one now
     if opened:
         print(f"opened a known-result check for {len(opened)} earlier candidates")
+    again = novelty.reconsider(conn)
+    if again:
+        print(f"{len(again)} candidates are back in play: they had been rejected for reducing to a known problem, "
+              f"being a special case of one, or a citation, which are now recorded for you to double-check")
     refreshed = novelty.refresh_unchecked(conn)
     if refreshed:
         print(f"updated the closest known problems of {len(refreshed)} candidates waiting for their check")

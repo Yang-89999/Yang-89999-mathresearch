@@ -104,13 +104,16 @@ mathresearch --dir ~/research report trend            # discovery metrics per da
 
 Every new candidate gets a known-result check. The system lists the known problems the candidate most
 resembles (structured search over the catalog) and opens a separate `novelty_check` question. That question's
-job is to show the candidate is known: maps between instances, or a reference. Only that separate run can
-leave a candidate open on novelty. The run that proposed a candidate cannot certify its own idea as new.
-`report problems` shows each candidate's check.
+job is to show the candidate is known. The check is loose on purpose, because ideas are gathered at scale
+and you double-check them by hand. Only an equivalence rejects a candidate: maps between instances both ways
+that keep the distribution. A reduction to a known problem, a special case of one, or a citation is recorded
+as a relative, and the candidate goes on to the lab. The run that proposed a candidate cannot certify its own
+idea as new. `report problems` shows each candidate's check, the argument to double-check, and one line per
+settled candidate with the reason.
 
 The loop keeps candidates coming and works on them first:
 
-- While fewer than `candidate_target` candidates are in play (charter; default 4), the loop opens a `propose`
+- While fewer than `candidate_target` candidates are in play (charter; default 12), the loop opens a `propose`
   question, at most one per `propose_every_runs` runs (default 3). It lists the ideas from reading and
   experiments that have not become candidates yet, and it closes only with a candidate or a stated reason.
 - In the deepen lane a known-result check runs before anything else, then questions about a candidate in

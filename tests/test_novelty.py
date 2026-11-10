@@ -109,3 +109,74 @@ def test_catalog_load_opens_checks_for_older_candidates(tmp_path, capsys):
     assert store.get(conn, "problems", old)["novelty"]["verdict"] == "unchecked"
     assert main(["--dir", str(tmp_path), "catalog", "load"]) == 0
     assert "earlier candidates" not in capsys.readouterr().out
+
+
+def _candidate(conn, q, name="Planted cubic Chow decomposition"):
+    run = store.insert(conn, "runs", question_id=q["id"], status="done")
+    cand = {**TRANSPORTER, "name": name, "objects": "cubic forms that are sums of products of linear forms",
+            "domains": "algebraic geometry", "known_relatives": ""}
+    pid = writeback.apply(conn, run, q, _wb(candidate_problems=[cand]))["problems"][0]
+    check_q = next(x for x in store.select(conn, "questions", "problem_id = ?", (pid,)) if x["kind"] == "novelty_check")
+    return pid, check_q
+
+
+def test_a_reduction_to_a_known_problem_is_a_relative_not_a_rejection(tmp_path):
+    conn, q = _setup(tmp_path)
+    pid, check_q = _candidate(conn, q)
+    run2 = store.insert(conn, "runs", question_id=check_q["id"], status="done")
+    created = writeback.apply(conn, run2, check_q, _wb(novelty_checks=[{
+        "problem_id": pid, "relation": "reduces_to_known", "known_problem_id": "prob_known_mq",
+        "argument": "Introduce d_jik = a_ji b_jk; every constraint is quadratic, so it is a structured MQ instance."}]))
+    assert not created["warnings"]
+    p = store.get(conn, "problems", pid)
+    assert p["status"] == "idea" and p["novelty"]["verdict"] == "related"
+    assert p["reductions"][-1] == {"to": "prob_known_mq", "relation": "reduces_to_known",
+                                   "note": p["novelty"]["checks"][-1]["argument"]}
+    store.update(conn, "problems", pid, status="not_trivially_broken")
+    assert novelty.promote_if_open(conn, pid) and store.get(conn, "problems", pid)["status"] == "not_known"
+    assert "known-result check: related (reduces_to_known prob_known_mq)" in report.problems(conn)
+
+
+def test_agents_cannot_open_a_second_known_result_check(tmp_path):
+    conn, q = _setup(tmp_path)
+    run = store.insert(conn, "runs", question_id=q["id"], status="done")
+    data = _wb(new_questions=[{"kind": "novelty_check", "lane": "harvest", "title": "Classify the planted problem",
+                               "body": "b", "blocks_parent": False, "priority": 0.9, "sparked_by": "prior",
+                               "sparked_by_id": ""}])
+    created = writeback.apply(conn, run, q, data)
+    assert not created["questions"] and any("not opened" in w for w in created["warnings"])
+    kinds = writeback.WRITEBACK_SCHEMA["properties"]["new_questions"]["items"]["properties"]["kind"]["enum"]
+    assert "novelty_check" not in kinds and "investigate" in kinds
+
+
+def test_candidates_rejected_under_the_first_rules_come_back(tmp_path, capsys):
+    main(["--dir", str(tmp_path), "init"])
+    conn = db.connect(tmp_path / "research.db")
+    catalog.load(conn)
+
+    def rejected(name, relation, known):
+        pid = store.insert(conn, "problems", name=name, status="duplicate", objects="tensors", novelty={
+            "closest": [], "verdict": "known",
+            "checks": [{"relation": relation, "known_id": known, "argument": f"{name}: the earlier argument " * 3,
+                        "run_id": "r", "question_id": "q"}]})
+        store.insert(conn, "questions", kind="investigate", lane="deepen", status="abandoned", problem_id=pid,
+                     title=f"Make '{name}' well defined")
+        return pid
+
+    mq = rejected("Punctured tensor transporter", "reduces_to_known", "prob_known_mq")
+    lit = rejected("Planted slice-subspace recovery", "known_in_literature", None)
+    same = rejected("Arrow-mixed transporter", "equivalent", "prob_known_tensor_isomorphism")
+    assert main(["--dir", str(tmp_path), "catalog", "load"]) == 0
+    assert "2 candidates are back in play" in capsys.readouterr().out
+    for pid in (mq, lit):
+        p = store.get(conn, "problems", pid)
+        assert p["status"] == "idea" and p["novelty"]["verdict"] == "related"
+    assert store.get(conn, "problems", same)["status"] == "duplicate"                 # an equivalence stands
+    for pid, status in ((mq, "open"), (lit, "open"), (same, "abandoned")):
+        defs = [x for x in store.select(conn, "questions", "problem_id = ?", (pid,)) if x["kind"] == "investigate"]
+        assert [d["status"] for d in defs] == [status]
+    assert main(["--dir", str(tmp_path), "catalog", "load"]) == 0
+    assert "back in play" not in capsys.readouterr().out
+    text = " ".join(report.problems(conn).split())
+    assert "to double-check by hand: Planted slice-subspace recovery: the earlier argument" in text
+    assert "# Settled candidates (1)" in text and "equivalent prob_known_tensor_isomorphism: Arrow-mixed" in text

@@ -8,12 +8,17 @@ and nothing noticed. Now every new candidate gets:
 2. its own ``novelty_check`` question, run separately from the run that proposed it, whose job is adversarial:
    show the candidate is known (explicit maps between instances, a textbook or paper that has it).
 
-A check's outcome is one of RELATIONS. Showing it is known (equivalent, a special case, or reducing to a known
-problem it is no harder than, or found in the literature) marks the candidate a duplicate. Generalizing a
-known problem, or no relative found after checking the closest ones, leaves it open, and only a check made in
-a novelty_check run by a different run than the one that proposed the candidate counts for that: a proposer
-cannot certify its own idea new. A candidate that is open on novelty and not trivially broken on the ladder
-reaches status ``not_known``.
+A check's outcome is one of RELATIONS. The check is deliberately loose: ideas are gathered at scale and the
+operator double-checks them by hand, so only one outcome rejects a candidate (status ``duplicate``): it is
+equivalent to a known problem, with instance maps both ways that keep the distribution. A special case of a
+known problem, a reduction to one, and a citation where the literature has it are recorded as relatives for
+the operator and do not reject: nearly everything reduces to MQ, a planted special case (UOV inside MQ) is how
+assumptions arise, and a cited object is often not the planted search problem. The first rules rejected on all
+of these, and 9 of the first 10 candidates died before any attack ran; ``reconsider`` puts them back in play.
+
+Anything other than a rejection counts only from a check made in a novelty_check run by a different run than
+the one that proposed the candidate: a proposer cannot certify its own idea new. A candidate that passed the
+check (verdict ``open`` or ``related``) and is not trivially broken on the ladder reaches status ``not_known``.
 """
 
 from __future__ import annotations
@@ -25,16 +30,22 @@ from typing import Any
 from . import store
 
 KNOWN_RELATIONS = {
-    "equivalent": "equivalent to the known problem (instance maps both ways)",
-    "special_case": "a special case of the known problem",
-    "reduces_to_known": "reduces to the known problem, so it is no harder",
-    "known_in_literature": "already studied in a paper or textbook",
+    "equivalent": "the same problem as the known one: explicit instance maps both ways that preserve the "
+                  "instance distribution (the only rejection)",
+}
+RELATED_RELATIONS = {
+    "special_case": "a special case of the known problem with extra planted structure; not a rejection: the lab "
+                    "decides whether the structure makes it easier",
+    "reduces_to_known": "reduces to the known problem (most problems reduce to MQ); not a rejection: it bounds "
+                        "the hardness from above and names an attack to run",
+    "known_in_literature": "a paper or textbook you cite studies this problem or its underlying object; not a "
+                           "rejection: the citation is recorded for the operator to double-check by hand",
 }
 OPEN_RELATIONS = {
     "generalizes": "contains the known problem as a special case; the general case may be new",
     "no_relative_found": "no known problem relates to it after checking the closest ones",
 }
-RELATIONS = {**KNOWN_RELATIONS, **OPEN_RELATIONS}
+RELATIONS = {**KNOWN_RELATIONS, **RELATED_RELATIONS, **OPEN_RELATIONS}
 
 _STOP = {"the", "and", "for", "from", "with", "over", "that", "this", "where", "which", "given", "find", "into",
          "random", "uniform", "uniformly", "matrix", "matrices", "vector", "vectors", "element", "elements",
@@ -102,7 +113,12 @@ def _check_body(problem: dict[str, Any], closest: list[dict[str, Any]], relative
             f"Your job is adversarial: try to show it is a known problem in disguise.\n"
             f"Closest known problems by structure:\n{listing}\n"
             + (f"The proposer named these relatives: {relatives_note}\n" if relatives_note else "")
-            + "The list is found by shared vocabulary, so it can miss a problem stated in another area's words: "
+            + "The only rejection is 'equivalent': instance maps both ways that keep the distribution. A special "
+            "case of a known problem, a reduction to one such as MQ, or a paper that has the problem or its "
+            "underlying object is not a rejection: record it as special_case, reduces_to_known or "
+            "known_in_literature (with the exact citation), and say which known attack it suggests running. The "
+            "operator double-checks these by hand. "
+            "The list is found by shared vocabulary, so it can miss a problem stated in another area's words: "
             "also go through the whole catalog (list the known problems) and ask of each whether the candidate's "
             "objects and group action are the same up to renaming. "
             "For each, try to write explicit maps between instances in both directions (or show it is a special "
@@ -164,7 +180,7 @@ def record(conn: sqlite3.Connection, problem_id: str, relation: str, known_id: s
         known_id = None
     if relation in ("equivalent", "special_case", "reduces_to_known", "generalizes") and not known_id:
         return f"novelty check '{relation}' on {problem_id} must name the known problem id; ignored"
-    if relation in OPEN_RELATIONS and (question.get("kind") != "novelty_check"
+    if relation not in KNOWN_RELATIONS and (question.get("kind") != "novelty_check"
                                        or run_id == problem.get("created_by_run")):
         return (f"'{relation}' on {problem_id} counts only from its known-result check question, run separately "
                 f"from the run that proposed it; recorded as a note, verdict unchanged")
@@ -173,15 +189,17 @@ def record(conn: sqlite3.Connection, problem_id: str, relation: str, known_id: s
                                                       "argument": argument[:2000], "run_id": run_id,
                                                       "question_id": question.get("id")}]
     changes: dict[str, Any] = {}
+    if relation in KNOWN_RELATIONS or relation in RELATED_RELATIONS:
+        reductions = list(problem.get("reductions") or [])
+        reductions.append({"to": known_id, "relation": relation, "note": argument[:500]})
+        changes["reductions"] = reductions
     if relation in KNOWN_RELATIONS:
         nov["verdict"] = "known"
         if problem["status"] not in ("known", "broken", "abandoned"):
             changes["status"] = "duplicate"
-        reductions = list(problem.get("reductions") or [])
-        reductions.append({"to": known_id, "relation": relation, "note": argument[:500]})
-        changes["reductions"] = reductions
     elif nov.get("verdict") != "known":
-        nov["verdict"] = "open"
+        # a special case of, or a reduction to, a known problem is a relative, not a rejection
+        nov["verdict"] = "related" if relation in RELATED_RELATIONS or nov.get("verdict") == "related" else "open"
         if problem["status"] == "not_trivially_broken":
             changes["status"] = "not_known"
     store.update(conn, "problems", problem_id, novelty=nov, **changes)
@@ -191,10 +209,30 @@ def record(conn: sqlite3.Connection, problem_id: str, relation: str, known_id: s
 def promote_if_open(conn: sqlite3.Connection, problem_id: str) -> bool:
     """After the ladder: a candidate not trivially broken and open on novelty reaches 'not_known'."""
     problem = store.get(conn, "problems", problem_id)
-    if problem and problem["status"] == "not_trivially_broken" and (problem.get("novelty") or {}).get("verdict") == "open":
+    if problem and problem["status"] == "not_trivially_broken" and (problem.get("novelty") or {}).get("verdict") in PASSED:
         store.update(conn, "problems", problem_id, status="not_known")
         return True
     return False
+
+
+PASSED = ("open", "related")    # verdicts that let a candidate go on: not shown to be a known problem
+
+
+def reconsider(conn: sqlite3.Connection) -> list[str]:
+    """Candidates rejected under the first rules (as a special case of, a reduction to, or a citation for a
+    known problem) come back in play as 'related'; an 'equivalent' stands. Returns the problem ids."""
+    out = []
+    for p in store.select(conn, "problems", "status = 'duplicate' AND novelty IS NOT NULL"):
+        nov = dict(p.get("novelty") or {})
+        checks = nov.get("checks") or []
+        if nov.get("verdict") != "known" or not checks or any(c["relation"] in KNOWN_RELATIONS for c in checks):
+            continue
+        store.update(conn, "problems", p["id"], status="idea", novelty={**nov, "verdict": "related"})
+        for q in store.select(conn, "questions", "problem_id = ? AND kind = 'investigate' AND status = 'abandoned' "
+                              "AND runs = 0", (p["id"],)):
+            store.update(conn, "questions", q["id"], status="open", closed_at=None)
+        out.append(p["id"])
+    return out
 
 
 ACTIVE = ("idea", "well_defined", "not_trivially_broken", "not_known", "useful_structure", "human_review")
