@@ -11,9 +11,10 @@ known problems):
 
 - candidate pressure: while too few candidates are in play, ``ensure_proposal``
   opens a 'propose' question, which goes first in the harvest lane;
-- candidates first: in the deepen lane a known-result check goes before
-  anything else, then the questions about a candidate still in play, and only
-  then questions about known problems.
+- candidates first: in the deepen lane, questions about a candidate in play
+  (its definition, attacks and known-result check) go before questions about
+  known problems, and while such work is waiting the lane gets 70% of the
+  runs (few candidates, each worked on in depth).
 """
 
 from __future__ import annotations
@@ -110,24 +111,42 @@ def _proposal_body(conn: sqlite3.Connection, playing: list[dict[str, Any]]) -> s
     return "\n".join(lines)
 
 
-def _deepen_first(conn: sqlite3.Connection, questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The deepen questions to draw from: the known-result checks if any are open, else the questions about a
-    candidate in play, else all of them. The priority order is kept."""
+WAITING_SHARE = 0.7     # share of runs the deepen lane gets while candidate work is waiting
+WAITING_MIN = 3         # ... once at least this many questions about candidates in play are open
+WORK_OVER_CHECK = 2 / 3  # with both open, a definition or attack question is drawn this often over a check
+
+
+def _deepen_groups(conn: sqlite3.Connection) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Open deepen questions as (known-result checks, other work on a candidate in play, the rest), each in
+    priority order."""
+    questions = store.open_questions(conn, lane="deepen", limit=500)
     playing = {p["id"] for p in in_play(conn)}
     checks = [q for q in questions if q["kind"] == "novelty_check"]
-    about_candidates = [q for q in questions if q.get("problem_id") in playing]
-    return checks or about_candidates or questions
+    work = [q for q in questions if q["kind"] != "novelty_check" and q.get("problem_id") in playing]
+    rest = [q for q in questions if q["kind"] != "novelty_check" and q.get("problem_id") not in playing]
+    return checks, work, rest
 
 
 def pick(conn: sqlite3.Connection, charter: Charter, rng: random.Random | None = None) -> dict[str, Any] | None:
     rng = rng or random.Random()
     ensure_proposal(conn, charter)
+    checks, work, rest = _deepen_groups(conn)
     lanes = [lane for lane, share in charter.lanes.items() if share > 0]
     weights = [charter.lanes[lane] for lane in lanes]
+    if "deepen" in lanes and len(checks) + len(work) >= WAITING_MIN:
+        # candidates are waiting to be defined, checked and attacked: the lab gets most of the runs
+        i = lanes.index("deepen")
+        others = sum(weights) - weights[i]
+        weights[i] = max(weights[i], others * WAITING_SHARE / (1 - WAITING_SHARE))
     order = _weighted_order(lanes, weights, rng)
     for lane in order:
         if lane == "deepen":
-            candidates = _deepen_first(conn, store.open_questions(conn, lane=lane, limit=200))[:5]
+            # A check no longer gates a candidate (only an equivalence rejects), and every new candidate brings
+            # one, so checks first would starve the definitions and attacks: draw between the two instead.
+            if checks and work:
+                candidates = (work if rng.random() < WORK_OVER_CHECK else checks)[:5]
+            else:
+                candidates = (checks or work or rest)[:5]
         else:
             candidates = store.open_questions(conn, lane=lane, limit=5)
             if candidates and candidates[0]["kind"] == "propose":

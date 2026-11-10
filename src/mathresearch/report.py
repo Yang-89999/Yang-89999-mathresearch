@@ -125,7 +125,7 @@ def _settled(conn: sqlite3.Connection, already_listed: bool) -> str:
         checks = (p.get("novelty") or {}).get("checks") or []
         why = ""
         if p["status"] == "duplicate" and checks:
-            c = checks[-1]
+            c = ([x for x in checks if x.get("relation") == "equivalent"] or checks)[-1]   # the check that rejected it
             why = f"{c['relation']}{' ' + c['known_id'] if c.get('known_id') else ''}: {c.get('argument', '')[:240]}"
         elif p["status"] == "duplicate" and p.get("parent_id"):
             why = f"same as {p['parent_id']}"

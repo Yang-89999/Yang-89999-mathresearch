@@ -68,7 +68,7 @@ def test_the_loop_asks_for_candidates_when_too_few_are_in_play(tmp_path):
     assert agenda.ensure_proposal(conn, _charter(candidate_target=0)) is None  # switched off
 
 
-def test_deepen_runs_the_check_then_the_candidate_then_known_problems(tmp_path):
+def test_deepen_works_on_candidates_before_known_problems(tmp_path):
     conn = db.connect(tmp_path / "r.db")
     charter = _charter(candidate_target=0)
     charter.lanes = {"harvest": 0.0, "deepen": 1.0, "open": 0.0}
@@ -78,13 +78,43 @@ def test_deepen_runs_the_check_then_the_candidate_then_known_problems(tmp_path):
     define = store.insert(conn, "questions", kind="investigate", lane="deepen", title="Make it well defined",
                           problem_id=pid, priority=0.6)
     check = novelty.open_check(conn, pid)
-    for seed in range(20):
-        assert agenda.pick(conn, charter, random.Random(seed))["id"] == check
+    picks = [agenda.pick(conn, charter, random.Random(seed))["id"] for seed in range(60)]
+    assert set(picks) == {check, define}                       # never a known-problem question while these wait
+    assert 30 <= picks.count(define) <= 50                     # the definition is not starved by the check
     store.close_question(conn, check)
-    for seed in range(20):
-        assert agenda.pick(conn, charter, random.Random(seed))["id"] == define
+    assert {agenda.pick(conn, charter, random.Random(seed))["id"] for seed in range(20)} == {define}
     store.close_question(conn, define)
     assert agenda.pick(conn, charter, random.Random(0))["title"].startswith("Attack SIDH")
+
+
+def test_the_lab_gets_most_of_the_runs_while_candidates_wait(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    charter = _charter(candidate_target=0)                     # default lanes: deepen 0.25
+    store.insert(conn, "questions", kind="learn", lane="harvest", title="Read about codes")
+    store.insert(conn, "questions", kind="explore", lane="open", title="Wander")
+    known = store.insert(conn, "questions", kind="attack", lane="deepen", title="Attack SIDH")
+
+    def deepen_share():
+        lanes = [agenda.pick(conn, charter, random.Random(seed))["lane"] for seed in range(400)]
+        return lanes.count("deepen") / 400
+
+    assert 0.18 < deepen_share() < 0.32
+    store.close_question(conn, known)
+    for i in range(3):
+        pid = store.insert(conn, "problems", name=f"Candidate {i}", status="idea")
+        store.insert(conn, "questions", kind="investigate", lane="deepen", title=f"Define {i}", problem_id=pid)
+    assert 0.63 < deepen_share() < 0.77
+
+
+def test_copies_of_the_known_result_check_are_cleared_at_the_start_of_a_run(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    pid = store.insert(conn, "problems", name="A candidate", status="idea")
+    own = novelty.open_check(conn, pid)
+    copy = store.insert(conn, "questions", kind="novelty_check", lane="harvest",
+                        title="Classify the candidate against known subspace problems")
+    assert novelty.drop_copies(conn) == [copy] and novelty.drop_copies(conn) == []
+    assert store.get(conn, "questions", copy)["status"] == "abandoned"
+    assert store.get(conn, "questions", own)["status"] == "open"
 
 
 def test_closest_known_sees_through_another_areas_vocabulary(tmp_path):
@@ -140,3 +170,17 @@ def test_a_database_from_before_gains_the_propose_kind(tmp_path):
         raise AssertionError("kind check lost")
     except sqlite3.IntegrityError:
         pass
+
+
+def test_the_operator_drops_candidates_by_hand(tmp_path, capsys):
+    from mathresearch.cli import main
+    main(["--dir", str(tmp_path), "init"])
+    conn = db.connect(tmp_path / "research.db")
+    pid = store.insert(conn, "problems", name="Planted sparse filling", status="idea")
+    q = store.insert(conn, "questions", kind="investigate", lane="deepen", title="Define it", problem_id=pid)
+    assert main(["--dir", str(tmp_path), "candidates", "drop", pid, "--why", "plain syndrome decoding"]) == 0
+    assert "dropped 'Planted sparse filling' (1 questions closed)" in capsys.readouterr().out
+    assert store.get(conn, "problems", pid)["status"] == "abandoned"
+    assert store.get(conn, "questions", q)["status"] == "abandoned"
+    assert "plain syndrome decoding" in store.get(conn, "questions", q)["summary"]
+    assert main(["--dir", str(tmp_path), "candidates", "drop", "prob_nope"]) == 1

@@ -16,7 +16,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Callable
 
-from . import agenda, db, pricing, store
+from . import agenda, db, novelty, pricing, store
 from .charter import Charter
 from .providers.base import Provider
 from .reflect import Reflection, reflect
@@ -69,6 +69,10 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
         result.warnings.append(
             f"recovered from an earlier stop: {len(recovered['runs'])} unfinished runs marked cancelled, "
             f"{len(recovered['questions'])} questions reopened")
+    dropped = novelty.drop_copies(conn)
+    if dropped:
+        result.warnings.append(f"abandoned {len(dropped)} known-result check questions that copied a candidate's "
+                               f"own check")
     rng = random.Random(seed)
     agenda.seed(conn, charter)
     path = _db_path(conn)
