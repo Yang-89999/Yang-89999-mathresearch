@@ -87,7 +87,7 @@ def test_deepen_works_on_candidates_before_known_problems(tmp_path):
     assert agenda.pick(conn, charter, random.Random(0))["title"].startswith("Attack SIDH")
 
 
-def test_the_lab_gets_half_of_the_runs_while_candidates_wait(tmp_path):
+def test_the_lab_gets_most_of_the_runs_while_candidates_wait(tmp_path):
     conn = db.connect(tmp_path / "r.db")
     charter = _charter(candidate_target=0)                     # default lanes: deepen 0.25
     store.insert(conn, "questions", kind="learn", lane="harvest", title="Read about codes")
@@ -103,7 +103,7 @@ def test_the_lab_gets_half_of_the_runs_while_candidates_wait(tmp_path):
     for i in range(3):
         pid = store.insert(conn, "problems", name=f"Candidate {i}", status="idea")
         store.insert(conn, "questions", kind="investigate", lane="deepen", title=f"Define {i}", problem_id=pid)
-    assert 0.43 < deepen_share() < 0.57
+    assert 0.63 < deepen_share() < 0.77
 
 
 def test_copies_of_the_known_result_check_are_cleared_at_the_start_of_a_run(tmp_path):

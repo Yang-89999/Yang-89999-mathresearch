@@ -169,7 +169,7 @@ class Charter:
     lanes: dict[str, float] = field(default_factory=lambda: {"harvest": 0.6, "deepen": 0.25, "open": 0.15})
     max_concurrent_runs: int = 3
     reflect_every_runs: int = 20
-    candidate_target: int = 12     # keep at least this many candidates in play; below it the loop asks for more
+    candidate_target: int = 5     # keep at least this many candidates in play; below it the loop asks for more
     propose_every_runs: int = 3    # ... but at most one request for candidates per this many runs
     notes: str = ""
     hidden_attacks: list[str] = field(default_factory=list)   # lab attacks withheld from workers (retrodiction)
@@ -207,7 +207,7 @@ class Charter:
             lanes=lanes,
             max_concurrent_runs=int(data.get("max_concurrent_runs", 3)),
             reflect_every_runs=int(data.get("reflect_every_runs", 20)),
-            candidate_target=int(data.get("candidate_target", 12)),
+            candidate_target=int(data.get("candidate_target", 5)),
             propose_every_runs=max(1, int(data.get("propose_every_runs", 3))),
             notes=str(data.get("notes", "")),
             hidden_attacks=[str(a) for a in data.get("hidden_attacks", []) or []],
@@ -359,7 +359,7 @@ reflect_every_runs: 20
 # Candidate pressure. While fewer than candidate_target candidate problems are in play (proposed and not yet
 # broken, shown to be known, or settled), the loop opens a 'propose' question asking for new ones, at most
 # once per propose_every_runs runs. Set candidate_target to 0 to turn this off.
-candidate_target: 12
+candidate_target: 5
 propose_every_runs: 3
 
 # Spending caps, enforced by the loop. A run that reaches its cap is asked to

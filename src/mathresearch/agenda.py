@@ -13,8 +13,8 @@ known problems):
   opens a 'propose' question, which goes first in the harvest lane;
 - candidates first: in the deepen lane, questions about a candidate in play
   (its definition, attacks and known-result check) go before questions about
-  known problems, and while such work is waiting the lane gets at least half
-  of the runs.
+  known problems, and while such work is waiting the lane gets 70% of the
+  runs (few candidates, each worked on in depth).
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _proposal_body(conn: sqlite3.Connection, playing: list[dict[str, Any]]) -> s
     return "\n".join(lines)
 
 
-WAITING_SHARE = 0.5     # share of runs the deepen lane gets while candidate work is waiting
+WAITING_SHARE = 0.7     # share of runs the deepen lane gets while candidate work is waiting
 WAITING_MIN = 3         # ... once at least this many questions about candidates in play are open
 WORK_OVER_CHECK = 2 / 3  # with both open, a definition or attack question is drawn this often over a check
 
@@ -134,7 +134,7 @@ def pick(conn: sqlite3.Connection, charter: Charter, rng: random.Random | None =
     lanes = [lane for lane, share in charter.lanes.items() if share > 0]
     weights = [charter.lanes[lane] for lane in lanes]
     if "deepen" in lanes and len(checks) + len(work) >= WAITING_MIN:
-        # candidates are waiting to be defined, checked and attacked: the lab gets at least half of the runs
+        # candidates are waiting to be defined, checked and attacked: the lab gets most of the runs
         i = lanes.index("deepen")
         others = sum(weights) - weights[i]
         weights[i] = max(weights[i], others * WAITING_SHARE / (1 - WAITING_SHARE))
