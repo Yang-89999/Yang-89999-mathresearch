@@ -119,6 +119,8 @@ The loop keeps candidates coming and works on them first:
 - In the deepen lane, questions about a candidate in play (its definition, its attacks, its known-result
   check) run before questions about known problems. While three or more such questions are waiting, the lane
   gets 70% of the runs, so a few candidates are worked on in depth.
+- You can drop candidates you judged not worth more runs:
+  `mathresearch --dir ~/research candidates drop <problem id> ... --why "reason"`.
 - Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate
   written in another area's words still meets it. `catalog load` updates the lists of candidates whose check
   has not run yet.

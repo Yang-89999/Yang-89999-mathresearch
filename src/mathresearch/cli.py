@@ -367,6 +367,27 @@ def cmd_library_wanted(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_candidates_drop(args: argparse.Namespace) -> int:
+    """The operator's double check: drop candidates by hand (status 'abandoned') and close their questions."""
+    conn = db.connect(_workspace(args) / DB_FILE)
+    status = 0
+    for pid in args.problem_ids:
+        p = store.get(conn, "problems", pid)
+        if p is None or p["status"] == "known":
+            print(f"{pid}: no such candidate", file=sys.stderr)
+            status = 1
+            continue
+        store.update(conn, "problems", pid, status="abandoned")
+        note = "Dropped by the operator" + (f": {args.why}" if args.why else ".")
+        n = 0
+        for q in store.select(conn, "questions", "problem_id = ? AND status IN ('open', 'blocked')", (pid,)):
+            store.update(conn, "questions", q["id"], summary=((q.get("summary") or "") + "\n" + note).strip())
+            store.close_question(conn, q["id"], status="abandoned")
+            n += 1
+        print(f"{pid}: dropped '{p['name']}' ({n} questions closed)")
+    return status
+
+
 def cmd_library_dismiss(args: argparse.Namespace) -> int:
     from . import wanted
     conn = db.connect(_workspace(args) / DB_FILE)
@@ -805,6 +826,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_library_open)
     c = lib.add_parser("wanted", help="papers and books the agents asked for, with their reasons")
     c.set_defaults(func=cmd_library_wanted)
+    cs = sub.add_parser("candidates", help="act on candidate problems by hand").add_subparsers(dest="candidates_cmd", required=True)
+    c = cs.add_parser("drop", help="drop candidates you judged not worth more runs (ids from 'report problems')")
+    c.add_argument("problem_ids", nargs="+")
+    c.add_argument("--why", help="one line for the record")
+    c.set_defaults(func=cmd_candidates_drop)
     c = lib.add_parser("dismiss", help="drop requests you will not fulfil")
     c.add_argument("request_ids", nargs="+")
     c.set_defaults(func=cmd_library_dismiss)

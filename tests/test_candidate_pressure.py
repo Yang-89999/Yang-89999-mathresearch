@@ -170,3 +170,17 @@ def test_a_database_from_before_gains_the_propose_kind(tmp_path):
         raise AssertionError("kind check lost")
     except sqlite3.IntegrityError:
         pass
+
+
+def test_the_operator_drops_candidates_by_hand(tmp_path, capsys):
+    from mathresearch.cli import main
+    main(["--dir", str(tmp_path), "init"])
+    conn = db.connect(tmp_path / "research.db")
+    pid = store.insert(conn, "problems", name="Planted sparse filling", status="idea")
+    q = store.insert(conn, "questions", kind="investigate", lane="deepen", title="Define it", problem_id=pid)
+    assert main(["--dir", str(tmp_path), "candidates", "drop", pid, "--why", "plain syndrome decoding"]) == 0
+    assert "dropped 'Planted sparse filling' (1 questions closed)" in capsys.readouterr().out
+    assert store.get(conn, "problems", pid)["status"] == "abandoned"
+    assert store.get(conn, "questions", q)["status"] == "abandoned"
+    assert "plain syndrome decoding" in store.get(conn, "questions", q)["summary"]
+    assert main(["--dir", str(tmp_path), "candidates", "drop", "prob_nope"]) == 1
