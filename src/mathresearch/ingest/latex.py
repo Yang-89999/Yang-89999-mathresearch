@@ -79,6 +79,7 @@ class LatexDocument:
     environments: dict[str, str] = field(default_factory=dict)  # env -> kind
     macros: dict[str, str] = field(default_factory=dict)
     bibliography: dict[str, dict] = field(default_factory=dict)  # cite key -> {"text", "arxiv", "eprint", "doi"}
+    sections: list[tuple[str, str]] = field(default_factory=list)  # (heading, prose) in reading order
 
 
 # -- preprocessing -------------------------------------------------------------
@@ -264,6 +265,33 @@ def _sections(text: str) -> list[tuple[int, str]]:
     return out
 
 
+MIN_SECTION_CHARS = 200
+
+
+def section_prose(text: str) -> list[tuple[str, str]]:
+    """The document's prose at its own headings, in reading order: the text between the theorems is where a
+    paper says how instances are sampled, why a step works and what fails. LaTeX math is kept as written.
+    The headings are the ones units are anchored to; a repeated heading gets a number."""
+    start = text.find("\\begin{document}")
+    body = text[start + len("\\begin{document}"):] if start >= 0 else text
+    for stop in ("\\begin{thebibliography}", "\\bibliography{", "\\end{document}"):
+        cut = body.find(stop)
+        if cut >= 0:
+            body = body[:cut]
+    heads = _sections(body)
+    out: list[tuple[str, str]] = []
+    seen: dict[str, int] = {}
+    for i, (pos, name) in enumerate(heads):
+        end = heads[i + 1][0] if i + 1 < len(heads) else len(body)
+        grp = _balanced(body, body.find("{", pos))
+        prose = clean_text(body[grp[1] if grp else pos:end])
+        if not name or len(prose) < MIN_SECTION_CHARS:
+            continue
+        seen[name] = seen.get(name, 0) + 1
+        out.append((name if seen[name] == 1 else f"{name} ({seen[name]})", prose))
+    return out
+
+
 def _section_at(sections: list[tuple[int, str]], pos: int) -> str | None:
     current = None
     for start, name in sections:
@@ -424,7 +452,7 @@ def parse(text: str, read: Callable[[str], str | None] | None = None, file: str 
         bbl = read(Path(file).with_suffix(".bbl").name)  # bibtex output shipped with arXiv sources
         bib_text = bbl or ""
     return LatexDocument(title=title, authors=authors, units=units, environments=envs, macros=defs,
-                         bibliography=bibliography(bib_text))
+                         bibliography=bibliography(bib_text), sections=section_prose(text))
 
 
 def find_main_file(root: Path) -> Path | None:

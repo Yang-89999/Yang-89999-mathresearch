@@ -127,6 +127,12 @@ The loop keeps candidates coming and works on them first:
   question or candidate, or a stated "nothing new".
 - You can drop candidates you judged not worth more runs:
   `mathresearch --dir ~/research candidates drop <problem id> ... --why "reason"`.
+- A candidate enters play only if the run that proposed it opened the text of the reference it names (a
+  section or a statement, not just the card), and, outside a `propose` question, only while fewer than
+  `candidate_target` are in play. Otherwise it is kept as an "Idea held back" question that later propose
+  runs see.
+- A known-result check only checks: it has no lab tools, 12 steps and half the token cap, closes when it
+  records its verdict, and is closed as "no relative found" after two runs without one.
 - Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate
   written in another area's words still meets it. `catalog load` updates the lists of candidates whose check
   has not run yet.
@@ -233,7 +239,7 @@ are already ingested and which to ingest next, and the proof on request.
 
 ```bash
 mathresearch --dir ~/research units follow unit_... --proof
-mathresearch --dir ~/research ingest relink     # once, for LaTeX sources ingested before links were kept
+mathresearch --dir ~/research ingest relink     # once, for LaTeX sources ingested before links and section prose were kept
 ```
 
 PDF text has no labels, so units from PDFs carry no links.
