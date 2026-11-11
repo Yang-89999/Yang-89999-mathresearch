@@ -110,7 +110,12 @@ KIND_INSTRUCTIONS = {
 """,
     "attack": """
 # This is an attack question
-The deliverable is a verified attack or a verified negative result, not an argument. Work in this order:
+The deliverable is a verified attack or a verified negative result, not an argument. If the target is a
+candidate without a family yet (sample_instance refuses it), first give it one with define_family: without a
+stored generator and verifier no attack on it can be registered and the candidate can never be marked
+broken. Look before you compute: find the closest published attack on the nearest known problem
+(search_units, then search_literature) and open the section that states its algorithm, once, early; say in a
+reading note what you took from it or why it does not transfer. Then work in this order:
 sample_instance to see the public data; run_script to compute with small instances and test hypotheses about
 structure (what survives the secret affine maps, what relations hold between inputs and outputs, what
 linear-algebra quantities have unexpected rank); when an algorithm recovers preimages, submit_attack with

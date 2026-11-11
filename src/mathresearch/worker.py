@@ -29,7 +29,7 @@ STEPS_BY_LANE = {"harvest": 12, "deepen": 24, "open": 16}   # model calls per ru
 # A known-result check compares a candidate with what is known: it reads and argues, it does not attack. The
 # first checks ran experiments instead, hit the token cap twice in a row and left the check open; attacks have
 # their own questions. So a check gets no lab tools, fewer steps, less effort and half the token cap.
-LAB_TOOLS = frozenset({"sample_instance", "submit_attack", "run_attack", "ladder_evaluate", "run_script"})
+LAB_TOOLS = frozenset({"define_family", "sample_instance", "submit_attack", "run_attack", "ladder_evaluate", "run_script"})
 CHECK_STEPS = 12
 CHECK_EFFORT = "medium"
 CHECK_TOKEN_SHARE = 0.5

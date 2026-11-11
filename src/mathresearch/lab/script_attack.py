@@ -28,6 +28,8 @@ from .attacks import AttackResult
 from .families import FAMILIES, Instance, ProblemFamily, get_family
 from .sweep import sweep
 
+CANDIDATE_PREFIX = "cand:"   # families defined by a candidate's own script (lab.candidate_family)
+
 INSTANCE_FORMAT = """\
 instance.json = {
   "family": "mq" | "matsumoto_imai",   # tensor_iso and atfe have their own format (see sample_instance)
@@ -43,6 +45,8 @@ Sampling more pairs (x, P(x)) is allowed and cheap: evaluate the public polys on
 
 def instance_to_json(instance: Instance) -> dict[str, Any]:
     """Public view of an instance: what an attacker legitimately has."""
+    if instance.family.startswith(CANDIDATE_PREFIX):
+        return {"family": instance.family, "size": instance.size, "public": instance.public["data"]}
     params = {k: v for k, v in instance.params.items() if k not in ("modulus",)}
     data = {"family": instance.family, "n": instance.params["n"], "p": instance.params["p"], "params": params}
     if "polys" in instance.public:
@@ -55,6 +59,9 @@ def instance_to_json(instance: Instance) -> dict[str, Any]:
 def instance_format(family_name: str) -> str:
     """What instance.json holds for a family, and what the script must print."""
     from .isomorphism import INSTANCE_FORMATS  # noqa: PLC0415
+    if family_name.startswith(CANDIDATE_PREFIX):
+        from .candidate_family import CONTRACT  # noqa: PLC0415
+        return CONTRACT
     return INSTANCE_FORMATS.get(family_name, INSTANCE_FORMAT)
 
 
@@ -77,7 +84,7 @@ class ScriptAttack:
         self.code_sha256 = hashlib.sha256(code.encode()).hexdigest()
 
     def applies(self, family: ProblemFamily) -> bool:
-        return family.name in FAMILIES
+        return family.name in FAMILIES or family.name.startswith(CANDIDATE_PREFIX)
 
     def run(self, family: ProblemFamily, instance: Instance, time_limit: float) -> AttackResult:
         base = Path(self.workdir) if self.workdir else Path(tempfile.gettempdir())
@@ -131,13 +138,14 @@ def evaluate_script_attack(conn: sqlite3.Connection, *, name: str, code: str, fa
                            sizes: list[int], time_limit: float = 30.0, engine: str = "python",
                            family_kwargs: dict[str, Any] | None = None, problem_id: str | None = None,
                            question_id: str | None = None, run_id: str | None = None,
-                           description: str = "", workspace: Path | None = None, seed: int = 1000) -> dict[str, Any]:
+                           description: str = "", workspace: Path | None = None, seed: int = 1000,
+                           family: ProblemFamily | None = None) -> dict[str, Any]:
     """Sweep a submitted attack, record experiment + finding, register it as an attack when it works,
     and demote the problem when it is broken in polynomial time."""
     if re.search(r"\bmathresearch\b", code):
         raise ValueError("submitted scripts must be self-contained: they may not import or read the mathresearch "
                          "package (that would let a script call the lab's own attacks)")
-    family = get_family(family_name, **(family_kwargs or {}))
+    family = family or get_family(family_name, **(family_kwargs or {}))
     workdir = (workspace / "experiments" / (run_id or "manual")) if workspace else None
     attack = ScriptAttack(name, code, engine=engine, workdir=workdir)
     curve = sweep(family, attack, sizes, time_limit=time_limit, seed=seed, stop_after_timeout=True)

@@ -35,6 +35,14 @@ class ToolContext:
 
 Executor = Callable[[dict[str, Any], ToolContext], str]
 
+_CANDIDATE_CONTRACT = (
+    'Contract: the script reads task.json from its working directory and ends with print("RESULT:", json.dumps(..)). '
+    '{"op":"generate","size":n,"seed":s} -> {"public":..,"secret":..} (deterministic in size and seed, samples the '
+    'stated distribution); {"op":"verify","public":..,"candidates":[..]} -> {"ok":[true,false,..]} (sees only the '
+    'public part, accepts every valid solution); {"op":"random","public":..,"count":k,"seed":s} -> '
+    '{"candidates":[..]} (uniform well-formed candidates). An attack script on it reads instance.json = '
+    '{"family","size","public"} and returns {"solution": <candidate>, "work": <int>}.')
+
 
 MAX_DEPS_SHOWN = 8
 TEXTBOOK_KINDS = ("book", "notes")
@@ -323,8 +331,13 @@ def _ladder_evaluate(args: dict[str, Any], ctx: ToolContext) -> str:
         return f"No problem with id {args['problem_id']}"
     family_name = args.get("family") or problem.get("generator_path")
     if not family_name:
-        return ("This problem has no generator yet. Implement it as a family (a class with generate/forward/verify) "
-                "or run experiments with run_script; the ladder needs code, not prose.")
+        return ("This problem has no generator yet. Give it one with define_family (a generator and verifier "
+                "script); the ladder needs code, not prose.")
+    from ..lab import candidate_family
+    if candidate_family.problem_id_of(family_name):
+        return (f"{problem['id']} has its own family (status {problem['status']}): define_family already checked "
+                f"that it is well defined. No built-in attack applies to a new family; its test is "
+                f"submit_attack with family '{candidate_family.family_name(problem['id'])}'.")
     try:
         family = get_family(family_name)
     except KeyError as exc:
@@ -469,14 +482,42 @@ def _family_kwargs(args: dict[str, Any]) -> dict[str, Any]:
     return kw
 
 
+def _family(args: dict[str, Any], ctx: ToolContext) -> Any:
+    """A built-in family by name, or a candidate's own family ('cand:<problem id>' or the problem id)."""
+    from ..lab import candidate_family, get_family
+    if candidate_family.problem_id_of(args["family"]):
+        return candidate_family.load(ctx.conn, ctx.workspace, args["family"],
+                                     workdir=ctx.workspace / "experiments" / ctx.run_id)
+    return get_family(args["family"], **_family_kwargs(args))
+
+
+def _define_family(args: dict[str, Any], ctx: ToolContext) -> str:
+    from ..lab import candidate_family
+
+    pid = (args.get("problem_id") or ctx.question.get("problem_id") or "").strip()
+    try:
+        res = candidate_family.define(ctx.conn, ctx.workspace, pid, args["code"], size=int(args.get("size") or 4),
+                                      engine=args.get("engine") or "python",
+                                      timeout=min(60.0, ctx.script_timeout), question_id=ctx.question["id"],
+                                      run_id=ctx.run_id)
+    except (KeyError, RuntimeError, ValueError) as exc:
+        return f"cannot define family: {exc}"
+    ctx.experiment_ids.append(res["experiment_id"])
+    if not res["passed"]:
+        return (f"experiment {res['experiment_id']}: the script did NOT pass, nothing stored.\n"
+                f"{json.dumps(res['check'], default=str)}\n{candidate_family.CONTRACT}")
+    return (f"experiment {res['experiment_id']}, finding {res['finding_id']}: family {res['family']} stored; the "
+            f"candidate is well defined.\n{json.dumps(res['check'], default=str)}\n"
+            f"Now sample_instance and submit_attack with family '{res['family']}'.")
+
+
 def _sample_instance(args: dict[str, Any], ctx: ToolContext) -> str:
-    from ..lab import get_family
     from ..lab.script_attack import instance_format, instance_to_json
 
     try:
-        family = get_family(args["family"], **_family_kwargs(args))
+        family = _family(args, ctx)
         inst = family.generate(int(args.get("size") or 6), seed=int(args.get("seed") or 0))
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         return f"cannot sample: {exc}"
     data = instance_to_json(inst)
     text = json.dumps(data)
@@ -490,13 +531,16 @@ def _submit_attack(args: dict[str, Any], ctx: ToolContext) -> str:
 
     sizes = _parse_sizes(args.get("sizes", ""), [7, 9, 11, 13])
     seconds = min(float(args.get("seconds_per_size") or 60.0), ctx.script_timeout)
+    from ..lab import candidate_family
+    own = candidate_family.problem_id_of(args.get("family") or "")
     try:
         result = evaluate_script_attack(
             ctx.conn, name=args["name"], code=args["code"], family_name=args["family"], sizes=sizes,
             time_limit=seconds, engine=args.get("engine") or "python", family_kwargs=_family_kwargs(args),
-            problem_id=args.get("problem_id") or ctx.question.get("problem_id"), question_id=ctx.question["id"],
-            run_id=ctx.run_id, description=args.get("description") or "", workspace=ctx.workspace)
-    except (KeyError, TypeError, ValueError) as exc:
+            problem_id=own or args.get("problem_id") or ctx.question.get("problem_id"),
+            question_id=ctx.question["id"], run_id=ctx.run_id, description=args.get("description") or "",
+            workspace=ctx.workspace, family=_family(args, ctx) if own else None)
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         return f"cannot evaluate: {exc}"
     ctx.experiment_ids.append(result["experiment_id"])
     pts = "\n".join(f"  n={p['size']}: {'solved' if p['success'] else 'failed'} in {p['seconds']:.3g}s"
@@ -512,10 +556,27 @@ def _submit_attack(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
+    "define_family": (
+        ToolSpec(
+            name="define_family",
+            description="Give a candidate problem its own family: one self-contained script that generates "
+                        "instances and verifies solutions. The lab checks it (deterministic generation, the "
+                        "planted secret verifies, random candidates do not) and, when it passes, stores it and "
+                        "marks the candidate well defined. After that sample_instance and submit_attack accept "
+                        "family 'cand:<problem id>', so an attack on the candidate can be verified and "
+                        "registered. Do this before attacking a candidate. " + _CANDIDATE_CONTRACT,
+            input_schema={"type": "object", "properties": {
+                "problem_id": {"type": "string", "description": "the candidate; default: this question's problem"},
+                "code": {"type": "string", "description": "the family script"},
+                "size": {"type": "integer", "description": "size for the check (small; default 4)"},
+                "engine": {"type": "string", "enum": ["python", "sage"]},
+            }, "required": ["code"]},
+        ), _define_family),
     "sample_instance": (
         ToolSpec(
             name="sample_instance",
-            description="Generate one public instance of a problem family (mq, matsumoto_imai, tensor_iso, atfe) in "
+            description="Generate one public instance of a problem family (mq, matsumoto_imai, tensor_iso, atfe, or a "
+                        "candidate's own family 'cand:<problem id>' once define_family has stored it) in "
                         "the exact JSON "
                         "format a submitted attack script receives, with the format documented. Use it to study the "
                         "structure of the public map in run_script before writing an attack.",
@@ -539,7 +600,8 @@ TOOLS: dict[str, tuple[ToolSpec, Executor]] = {
             input_schema={"type": "object", "properties": {
                 "name": {"type": "string", "description": "identifier, e.g. bilinear_relations_v1"},
                 "code": {"type": "string", "description": "full script; reads instance.json, prints RESULT: {...}"},
-                "family": {"type": "string"},
+                "family": {"type": "string", "description": "a built-in family, or 'cand:<problem id>' for a "
+                                                             "candidate's own family (define_family first)"},
                 "sizes": {"type": "string", "description": "comma-separated n values, e.g. '7,9,11,13'"},
                 "seconds_per_size": {"type": "number"},
                 "engine": {"type": "string", "enum": ["python", "sage"]},
