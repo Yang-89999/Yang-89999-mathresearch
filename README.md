@@ -119,6 +119,11 @@ The loop keeps candidates coming and works on them first:
 - In the deepen lane, questions about a candidate in play (its definition, its attacks, its known-result
   check) run before questions about known problems. While three or more such questions are waiting, the lane
   gets 70% of the runs, so a few candidates are worked on in depth.
+- Once in a while a source is read again (`reread`): the one whose first reading has led to the most new
+  results since (findings, experiments, candidates settled), with the first notes and those results in the
+  question. At most one is open at a time, one per `reread_every_runs` runs (charter; default 15, 0 turns it
+  off), and only for a source with at least `reread_min_events` new results (default 3). It closes with a new
+  question or candidate, or a stated "nothing new".
 - You can drop candidates you judged not worth more runs:
   `mathresearch --dir ~/research candidates drop <problem id> ... --why "reason"`.
 - Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate

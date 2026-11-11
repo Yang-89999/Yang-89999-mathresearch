@@ -171,6 +171,8 @@ class Charter:
     reflect_every_runs: int = 20
     candidate_target: int = 5     # keep at least this many candidates in play; below it the loop asks for more
     propose_every_runs: int = 3    # ... but at most one request for candidates per this many runs
+    reread_every_runs: int = 15    # at most one re-read of an already-read source per this many runs (0: never)
+    reread_min_events: int = 3     # ... and only of a source whose reading led to this many new results since
     notes: str = ""
     hidden_attacks: list[str] = field(default_factory=list)   # lab attacks withheld from workers (retrodiction)
     catalog_max_year: int | None = None                       # ignore catalog entries published after this year
@@ -209,6 +211,8 @@ class Charter:
             reflect_every_runs=int(data.get("reflect_every_runs", 20)),
             candidate_target=int(data.get("candidate_target", 5)),
             propose_every_runs=max(1, int(data.get("propose_every_runs", 3))),
+            reread_every_runs=max(0, int(data.get("reread_every_runs", 15))),
+            reread_min_events=max(1, int(data.get("reread_min_events", 3))),
             notes=str(data.get("notes", "")),
             hidden_attacks=[str(a) for a in data.get("hidden_attacks", []) or []],
             catalog_max_year=int(data["catalog_max_year"]) if data.get("catalog_max_year") else None,
@@ -361,6 +365,12 @@ reflect_every_runs: 20
 # once per propose_every_runs runs. Set candidate_target to 0 to turn this off.
 candidate_target: 5
 propose_every_runs: 3
+
+# Re-reads. A source read before is read again once its reading has led to at least reread_min_events new
+# results (findings, experiments, candidates settled), with the first notes and those results in front of the
+# reader. At most one re-read is open at a time and one is opened per reread_every_runs runs; 0 turns it off.
+reread_every_runs: 15
+reread_min_events: 3
 
 # Spending caps, enforced by the loop. A run that reaches its cap is asked to
 # write back immediately; no new run starts when it could break the daily or

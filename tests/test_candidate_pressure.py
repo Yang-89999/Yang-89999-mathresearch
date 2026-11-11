@@ -144,7 +144,7 @@ def test_a_database_from_before_gains_the_propose_kind(tmp_path):
     path = tmp_path / "r.db"
     conn = db.connect(path)
     old = store.insert(conn, "questions", kind="seed", lane="harvest", title="Seed read: kept across the rebuild")
-    conn.execute("DELETE FROM schema_version WHERE version = 10")
+    conn.execute("DELETE FROM schema_version WHERE version >= 10")
     conn.executescript("""
         PRAGMA foreign_keys = OFF;
         DROP TRIGGER questions_fts_ai; DROP TRIGGER questions_fts_ad; DROP TRIGGER questions_fts_au;
