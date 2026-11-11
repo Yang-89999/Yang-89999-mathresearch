@@ -221,6 +221,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     conn = db.connect(ws / DB_FILE)
     if args.report_command == "runs":
         print(report.runs(conn, last=args.last), end="")
+    elif args.report_command == "reads":
+        print(report.reads(conn, last=args.last), end="")
     elif args.report_command == "problems":
         print(report.problems(conn, include_dead=args.all), end="")
     elif args.report_command == "trend":
@@ -745,6 +747,8 @@ def build_parser() -> argparse.ArgumentParser:
     rs = s.add_subparsers(dest="report_command", required=True)
     r = rs.add_parser("runs", help="recent runs with their summaries, findings, reading notes and new questions")
     r.add_argument("--last", type=int, default=5, help="how many runs, newest first (default 5)")
+    r = rs.add_parser("reads", help="what each recent run opened: source, depth (card, outline, section, unit), purpose")
+    r.add_argument("--last", type=int, default=10, help="how many runs, newest first (default 10)")
     r = rs.add_parser("problems", help="candidate problems by ladder status")
     r.add_argument("--all", action="store_true", help="include broken, duplicate and abandoned candidates")
     r = rs.add_parser("trend", help="discovery metrics per day or per batch of runs: candidates, known in disguise, "

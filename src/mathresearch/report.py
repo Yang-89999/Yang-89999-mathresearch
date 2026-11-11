@@ -74,6 +74,49 @@ def runs(conn: sqlite3.Connection, last: int = 5) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+READ_DEPTH = {"card": 0, "outline": 1, "section": 2, "unit": 2, "follow": 2}
+
+
+def reads(conn: sqlite3.Connection, last: int = 10) -> str:
+    """What each of the last ``last`` runs opened, in order: the source, how deep (card, outline, a section, a
+    unit, a followed reference) and the purpose the worker gave. Recorded by the tools, not by the worker's own
+    account, so it shows whether a run read the text or stopped at the card."""
+    rows = store.select(conn, "runs", order="started_at DESC", limit=last)
+    if not rows:
+        return "No runs yet. Start one with `mathresearch run`.\n"
+    out: list[str] = [f"# What the last {len(rows)} runs read", ""]
+    titles: dict[str, str] = {}
+    deep_runs = 0
+    for r in rows:
+        q = store.get(conn, "questions", r["question_id"]) if r.get("question_id") else None
+        log = (r.get("context_ids") or {}).get("reads") or []
+        deep = [x for x in log if READ_DEPTH.get(x.get("level"), 0) == 2]
+        deep_runs += bool(deep)
+        head = f"{q['lane']} {q['kind']}: {q['title']}" if q else "(question deleted)"
+        out.append(f"## {head}")
+        out.append(f"{r['id']} | {r['status']} | {len(log)} reads, {len(deep)} of the text itself"
+                   + ("" if log else " | opened no source"))
+        origin = q.get("origin_id") if q else None
+        if origin and store.get(conn, "sources", origin):
+            hit = sum(1 for x in deep if x.get("source_id") == origin)
+            out.append(f"origin source {origin}: {hit} sections or units opened" if hit
+                       else f"origin source {origin}: text NOT opened in this run")
+        for x in log:
+            sid = x.get("source_id") or "?"
+            if sid not in titles:
+                src = store.get(conn, "sources", sid)
+                titles[sid] = (src["title"] if src else sid)[:60]
+            where = x.get("section") or ""
+            if x.get("unit_id"):
+                where = f"{x['unit_id']}" + (f" in {where}" if where else "")
+            line = f"- {x.get('level')}: {titles[sid]}" + (f" | {where}" if where else "")
+            out.append(line + (f" | why: {' '.join(x['purpose'].split())[:120]}" if x.get("purpose") else ""))
+        out.append("")
+    out.insert(2, f"{deep_runs} of {len(rows)} runs opened a section or unit; the rest stopped at cards, outlines "
+                  "or read nothing.\n")
+    return "\n".join(out).rstrip() + "\n"
+
+
 def problems(conn: sqlite3.Connection, include_dead: bool = False) -> str:
     """Candidate problems (not the catalog of known ones), best ladder status first."""
     statuses = CANDIDATE_ORDER if include_dead else CANDIDATE_ORDER[:6]
