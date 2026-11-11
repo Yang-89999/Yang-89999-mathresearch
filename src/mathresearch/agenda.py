@@ -11,6 +11,9 @@ known problems):
 
 - candidate pressure: while too few candidates are in play, ``ensure_proposal``
   opens a 'propose' question, which goes first in the harvest lane;
+- re-reads: once in a while ``ensure_reread`` has a source read again, the one
+  whose first reading has led to the most results since, with those results
+  in front of the reader;
 - candidates first: in the deepen lane, questions about a candidate in play
   (its definition, attacks and known-result check) go before questions about
   known problems, and while such work is waiting the lane gets 70% of the
@@ -88,6 +91,26 @@ def ensure_proposal(conn: sqlite3.Connection, charter: Charter) -> str | None:
                         body=_proposal_body(conn, playing))
 
 
+def ensure_reread(conn: sqlite3.Connection, charter: Charter) -> str | None:
+    """Open a re-read of the source whose reading has led to the most new results since it was last read: at
+    most one open at a time, and one per ``reread_every_runs`` runs. Returns the new question id."""
+    from . import reading  # noqa: PLC0415
+    every = charter.reread_every_runs
+    if every <= 0 or charter.lanes.get("harvest", 0) <= 0:
+        return None
+    if store.select(conn, "questions", "kind = 'reread' AND status IN ('open', 'running', 'blocked')", limit=1):
+        return None
+    last = conn.execute("SELECT MAX(created_at) AS t FROM questions WHERE kind = 'reread'").fetchone()["t"]
+    if last is None:   # the first re-read also waits its turn, counted from the first run
+        since = conn.execute("SELECT COUNT(*) AS n FROM runs").fetchone()["n"]
+    else:
+        since = conn.execute("SELECT COUNT(*) AS n FROM runs WHERE started_at > ?", (last,)).fetchone()["n"]
+    if since < every:
+        return None
+    rows = reading.reread_candidates(conn, charter.reread_min_events)
+    return reading.open_reread(conn, rows[0]) if rows else None
+
+
 def _proposal_body(conn: sqlite3.Connection, playing: list[dict[str, Any]]) -> str:
     """What a proposer needs to see: the ideas waiting on the agenda, and what was already proposed."""
     sparks = store.select(
@@ -130,6 +153,7 @@ def _deepen_groups(conn: sqlite3.Connection) -> tuple[list[dict[str, Any]], list
 def pick(conn: sqlite3.Connection, charter: Charter, rng: random.Random | None = None) -> dict[str, Any] | None:
     rng = rng or random.Random()
     ensure_proposal(conn, charter)
+    ensure_reread(conn, charter)
     checks, work, rest = _deepen_groups(conn)
     lanes = [lane for lane, share in charter.lanes.items() if share > 0]
     weights = [charter.lanes[lane] for lane in lanes]

@@ -306,6 +306,19 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
                        "finding saying why none of the listed ideas gives a well-posed problem")
             data = {**data, "summary": f"{data['summary']}\n[Not closed: {why_not}]".strip()}
             created["warnings"].append(f"propose question kept open: {why_not}")
+    if question.get("kind") == "reread" and status == "closed":
+        sid = question.get("origin_id")
+        negative = any(f["kind"] == "negative" for f in data["findings"])
+        sparked = [x for x in created["questions"] + created["problems"]
+                   if sid and sid in ((store.get(conn, "questions", x) or {}).get("origin_id"),
+                                      *((store.get(conn, "problems", x) or {}).get("refs") or []))]
+        if not sparked and not negative:
+            status = "open"
+            why_not = ("a re-read closes with a new question or candidate sparked by this source (sparked_by "
+                       "'reference', sparked_by_id the source id), or a negative finding saying the second reading "
+                       "gave nothing new")
+            data = {**data, "summary": f"{data['summary']}\n[Not closed: {why_not}]".strip()}
+            created["warnings"].append(f"re-read kept open: {why_not}")
     if question.get("kind") == "seed" and status == "closed":
         why_not = _seed_incomplete(conn, question, data)
         if why_not:

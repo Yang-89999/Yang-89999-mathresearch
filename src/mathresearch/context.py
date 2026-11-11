@@ -151,6 +151,18 @@ tested with run_script from the first deepen run). Audit each against the weakne
 hardness here and do not certify novelty: a separate known-result check does that. If none of the ideas
 gives a well-posed problem, say why in a negative finding. Keep the run short.
 """,
+    "reread": """
+# This is a re-read
+You read this source before; your notes from then and what has happened since are in the question. The point
+is not to summarise it again. Start from the results: for each failed attack, broken or surviving candidate
+and negative finding listed, ask what in this source explains it, predicts it, or contradicts it, and go to
+those sections (read_source outline, then the sections; they may not be the ones you read the first time).
+Statements you passed over as routine may now be the ones that matter: a hypothesis a broken candidate
+violated, a remark on why a method stops working, a parameter range the authors avoided. Deliver a reading
+note (prior: what you expect now; surprises: what reads differently) and at least one new question or
+candidate, sparked_by 'reference' with this source id, that says which result made it visible. If the second
+reading gives nothing the first did not, say so in a negative finding. Keep the run short.
+""",
     "survey": """
 # This is a survey (browsing)
 Browse widely but shallowly: paper cards and abstracts (read_source 'card', search_literature), not full

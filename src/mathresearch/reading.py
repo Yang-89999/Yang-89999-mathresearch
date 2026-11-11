@@ -18,6 +18,8 @@ ones that apply to its domains.
 
 from __future__ import annotations
 
+import json
+
 import sqlite3
 from collections import OrderedDict
 from typing import Any
@@ -319,3 +321,113 @@ def source_usefulness(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return rows
 
 
+
+
+# -- re-reads -----------------------------------------------------------------------------------------------
+
+REREAD_PRIORITY = 0.85     # below a request for candidates and the textbook seed reads, above paper seed reads
+SETTLED = ("broken", "duplicate", "abandoned", "not_known", "useful_structure")
+
+
+def _descendants(conn: sqlite3.Connection, source_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Everything a source's reading led to: the questions it sparked with their sub-questions, and the
+    candidate problems it sparked or that those questions are about."""
+    questions = {q["id"]: q for q in store.select(conn, "questions",
+                                                  "origin_id = ? AND kind NOT IN ('seed', 'reread')", (source_id,))}
+    frontier = list(questions)
+    while frontier:
+        marks = ",".join("?" for _ in frontier)
+        children = [q for q in store.select(conn, "questions", f"parent_id IN ({marks})", frontier)
+                    if q["id"] not in questions]
+        questions.update({q["id"]: q for q in children})
+        frontier = [q["id"] for q in children]
+    problems = {p["id"]: p for p in store.select(conn, "problems", "status != 'known' AND refs LIKE ?",
+                                                 (f'%"{source_id}"%',))}
+    for pid in {q["problem_id"] for q in questions.values() if q.get("problem_id")} - set(problems):
+        p = store.get(conn, "problems", pid)
+        if p and p["status"] != "known":
+            problems[pid] = p
+    return list(questions.values()), list(problems.values())
+
+
+def last_read(conn: sqlite3.Connection, source_id: str) -> str | None:
+    return conn.execute("SELECT MAX(created_at) AS t FROM reading_notes WHERE source_id = ?",
+                        (source_id,)).fetchone()["t"]
+
+
+def experience_since(conn: sqlite3.Connection, source_id: str, since: str) -> dict[str, list[dict[str, Any]]]:
+    """What happened, after ``since``, to what a source's reading led to: findings, experiments, and candidates
+    that were settled (broken, shown to be known, dropped, or survived)."""
+    questions, problems = _descendants(conn, source_id)
+    qids, pids = [q["id"] for q in questions], [p["id"] for p in problems]
+    out: dict[str, list[dict[str, Any]]] = {"findings": [], "experiments": [], "settled": [], "problems": problems}
+    for table, key in (("findings", "findings"), ("experiments", "experiments")):
+        where, params = [], []
+        if qids:
+            where.append(f"question_id IN ({','.join('?' for _ in qids)})")
+            params += qids
+        if pids:
+            where.append(f"problem_id IN ({','.join('?' for _ in pids)})")
+            params += pids
+        if where:
+            out[key] = store.select(conn, table, f"({' OR '.join(where)}) AND created_at > ?", params + [since],
+                                    order="created_at")
+    out["settled"] = [p for p in problems if p["status"] in SETTLED and (p.get("updated_at") or "") > since]
+    return out
+
+
+def reread_candidates(conn: sqlite3.Connection, min_events: int) -> list[dict[str, Any]]:
+    """Sources worth reading again, most new experience first (ties: the one read longest ago). Only sources
+    the operator provided whose first read is finished and that no re-read is waiting for."""
+    rows = []
+    for src in store.select(conn, "sources", "provided_by = 'operator'"):
+        sid = src["id"]
+        seed = store.select(conn, "questions", "kind = 'seed' AND origin_id = ?", (sid,), limit=1)
+        if not seed or seed[0]["status"] != "closed":
+            continue
+        if store.select(conn, "questions", "kind = 'reread' AND origin_id = ? AND status IN ('open', 'running', "
+                        "'blocked')", (sid,), limit=1):
+            continue
+        since = last_read(conn, sid)
+        if since is None:
+            continue
+        exp = experience_since(conn, sid, since)
+        events = len(exp["findings"]) + len(exp["experiments"]) + len(exp["settled"])
+        if events >= min_events:
+            rows.append({"source": src, "since": since, "events": events, "experience": exp})
+    rows.sort(key=lambda r: (-r["events"], r["since"]))
+    return rows
+
+
+def open_reread(conn: sqlite3.Connection, row: dict[str, Any]) -> str:
+    """Open the re-read question for one row of ``reread_candidates``: the first notes and what happened since."""
+    src, exp, sid = row["source"], row["experience"], row["source"]["id"]
+    notes = store.select(conn, "reading_notes", "source_id = ?", (sid,), order="created_at")
+    lines = [f"You read source {sid} ('{src['title']}') before. Since then its reading led to {row['events']} new "
+             f"results. Read it again with that experience: the sections that matter now may not be the ones you "
+             f"chose then, and a statement you passed over may explain a result below.", "",
+             "Your earlier notes on it:"]
+    for n in notes[-3:]:
+        for label, key in (("expected", "prior"), ("surprised by", "surprises"), ("structure exploited",
+                           "structure_exploited"), ("limits", "limits")):
+            if n.get(key):
+                lines.append(f"- {label}: {' '.join(str(n[key]).split())[:400]}")
+        for idea in (n.get("ideas") or [])[:6]:
+            lines.append(f"- idea then: {' '.join(str(idea).split())[:300]}")
+    lines += ["", "What happened since to what this reading led to:"]
+    for p in exp["problems"]:
+        last = ((p.get("novelty") or {}).get("checks") or [{}])[-1]
+        why = f" ({last['relation']}: {last.get('argument', '')[:200]})" if last.get("relation") else ""
+        lines.append(f"- candidate {p['id']} '{p['name']}' is now {p['status']}{why}")
+    for e in exp["experiments"][-8:]:
+        lines.append(f"- experiment {e['id']} ({e['kind']}): {json.dumps(e.get('result'), default=str)[:240]}")
+    order = {"negative": 0, "anomaly": 1, "experimental": 2}
+    for f in sorted(exp["findings"], key=lambda f: order.get(f["kind"], 3))[:12]:
+        lines.append(f"- finding {f['id']} ({f['kind']}): {' '.join(f['claim'].split())[:300]}")
+    lines += ["", "Deliver a reading note whose 'prior' says what you now expect and whose 'surprises' say what "
+              "reads differently this time, and at least one new question or candidate (sparked_by 'reference', "
+              "this source id) that names the result above that made it visible. If the second reading gives "
+              "nothing the first did not, record a negative finding saying so: that also closes the question."]
+    return store.insert(conn, "questions", kind="reread", lane="harvest", status="open", priority=REREAD_PRIORITY,
+                        title=f"Re-read with experience: {src['title'][:110]}", body="\n".join(lines),
+                        domains=src.get("domains") or None, origin="operator", origin_id=sid)
