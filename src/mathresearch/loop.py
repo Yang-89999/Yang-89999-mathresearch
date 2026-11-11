@@ -16,7 +16,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Callable
 
-from . import agenda, db, novelty, pricing, store
+from . import agenda, db, novelty, pricing, store, writeback
 from .charter import Charter
 from .providers.base import Provider
 from .reflect import Reflection, reflect
@@ -69,6 +69,9 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
         result.warnings.append(
             f"recovered from an earlier stop: {len(recovered['runs'])} unfinished runs marked cancelled, "
             f"{len(recovered['questions'])} questions reopened")
+    linked = writeback.link_orphans(conn)
+    if linked:
+        result.warnings.append(f"tied {len(linked)} open questions to the candidates they are about")
     dropped = novelty.drop_copies(conn)
     if dropped:
         result.warnings.append(f"abandoned {len(dropped)} known-result check questions that copied a candidate's "
@@ -99,6 +102,10 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
             question = agenda.pick(conn, charter, rng)
             if question is None:
                 break
+            short = too_little_left(conn, question["lane"], allowance)
+            if short:
+                result.stopped_because = short
+                break
             after(run_question(conn, charter, provider, question, workspace, max_steps=max_steps, model=model,
                                max_usd=allowance))
         return result
@@ -128,6 +135,11 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
                 question = agenda.pick(conn, charter, rng)
                 if question is None:
                     break
+                short = too_little_left(conn, question["lane"], allowance)
+                if short:
+                    if not running:
+                        result.stopped_because = short
+                    break  # runs in flight may free their reservation; otherwise the batch ends here
                 store.update(conn, "questions", question["id"], status="running")  # claim it before handing out
                 running[pool.submit(job, question, allowance)] = (question["id"], allowance or 0.0)
                 launched += 1
@@ -144,6 +156,25 @@ def run_cycles(conn: sqlite3.Connection, charter: Charter, provider: Provider, w
                     continue
                 after(outcome)
     return result
+
+
+ENOUGH_SHARE = 0.6   # of a lane's usual run cost: below this a run is cut off before it can report
+
+
+def too_little_left(conn: sqlite3.Connection, lane: str, allowance: float | None) -> str | None:
+    """Why a run in ``lane`` should not start on ``allowance`` dollars, or None. A run started on the last
+    cents of a batch spends them and is cut off mid-experiment (one deep run got $0.86 and cost $1.24)."""
+    if allowance is None:
+        return None
+    costs = sorted(r["cost_usd"] for r in conn.execute(
+        "SELECT cost_usd FROM runs WHERE lane = ? AND status = 'done' AND cost_usd IS NOT NULL "
+        "ORDER BY started_at DESC LIMIT 10", (lane,)).fetchall())
+    if len(costs) < 3:
+        return None
+    usual = costs[len(costs) // 2]
+    if allowance >= ENOUGH_SHARE * usual:
+        return None
+    return (f"${allowance:.2f} left is too little for a {lane} run (they usually cost ${usual:.2f}); not started")
 
 
 def due_for_reflection(conn: sqlite3.Connection, charter: Charter) -> bool:

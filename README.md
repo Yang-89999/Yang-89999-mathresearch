@@ -136,6 +136,15 @@ The loop keeps candidates coming and works on them first:
 - Each catalog problem lists the other names it is known under (`structure.also_known_as`), so a candidate
   written in another area's words still meets it. `catalog load` updates the lists of candidates whose check
   has not run yet.
+- A candidate gets its own lab family from a worker's script (`define_family`): a generator and a verifier
+  that the lab checks (deterministic, the planted secret verifies, random candidates do not), stores under
+  `~/research/families/<problem id>.py` and runs only in the sandbox. After that `sample_instance` and
+  `submit_attack` accept family `cand:<problem id>`, so an attack on the candidate is verified by the lab and
+  can mark it broken. The verifier is worker-written: treat a "broken" on a candidate family as a strong
+  lead and read the two scripts before believing it.
+- Questions a run opens about a candidate are tied to it (and old untied ones are tied at the start of a
+  batch), because the lab works on a candidate's questions first.
+- A run is not started when the money left is under 60% of what runs in its lane usually cost.
 
 ### Memory
 

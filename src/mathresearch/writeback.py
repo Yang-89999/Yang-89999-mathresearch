@@ -7,6 +7,7 @@ knowledge gap becomes a question; every candidate becomes a problem row.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any
 
@@ -66,6 +67,11 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
                     "blocks_parent": {"type": "boolean",
                                       "description": "true if the current question cannot proceed until this one is answered (a knowledge gap)."},
                     "priority": {"type": "number", "description": "0 to 1."},
+                    "problem_id": {"type": "string",
+                                   "description": "The candidate this question is about: its id, or 'new:<name>' for "
+                                                  "one proposed in this write-back. Always set it on attack and "
+                                                  "definition questions: the lab works on questions tied to a "
+                                                  "candidate first. Empty when it is about no candidate."},
                     **_SPARK,
                 },
             },
@@ -194,6 +200,44 @@ def validate(data: Any) -> dict[str, Any]:
         if a.get("status") not in reading.AUDIT_STATUSES:
             raise WritebackError(f"bad weakness audit {a}")
     return data
+
+
+_WORD = re.compile(r"[a-z]{4,}")
+_COMMON = frozenset("planted recovery problem problems attack attacks random hidden from with through recover "
+                    "candidate using over that this than rather beyond into their".split())
+
+
+def _words(text: str) -> set[str]:
+    return {w.rstrip("s") for w in _WORD.findall((text or "").lower()) if w not in _COMMON}
+
+
+def best_match(text: str, problems: list[dict[str, Any]]) -> str | None:
+    """The candidate a question's text is about, judged by the distinctive words it shares with each
+    candidate's name: one shared word when there is a single candidate, else the clear best with at least
+    two. None when no candidate stands out."""
+    problems = [p for p in problems if p]
+    have = _words(text)
+    if len(problems) == 1:
+        return problems[0]["id"] if have & _words(problems[0]["name"]) else None
+    scored = sorted(((len(have & _words(p["name"])), p["id"]) for p in problems), reverse=True)
+    if scored and scored[0][0] >= 2 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+        return scored[0][1]
+    return None
+
+
+def link_orphans(conn: sqlite3.Connection) -> list[str]:
+    """Tie open questions that are about a candidate but carry no problem id to that candidate: questions
+    opened by the run that proposed it. The lab lane works on a candidate's questions first, and about twenty
+    attack questions once sat unseen because they were not tied to theirs. Returns the linked ids."""
+    out = []
+    for q in store.select(conn, "questions", "status IN ('open', 'blocked') AND problem_id IS NULL AND "
+                          "created_by_run IS NOT NULL AND kind IN ('attack', 'investigate', 'learn')"):
+        problems = store.select(conn, "problems", "created_by_run = ? AND status != 'known'", (q["created_by_run"],))
+        pid = best_match(q["title"] + " " + (q.get("body") or ""), problems) if problems else None
+        if pid:
+            store.update(conn, "questions", q["id"], problem_id=pid)
+            out.append(q["id"])
+    return out
 
 
 TEXT_LEVELS = ("section", "unit", "follow")
@@ -338,9 +382,18 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
                                        f"one): {q['title'][:80]}")
             continue
         origin, origin_id = reading.resolve_origin(conn, q.get("sparked_by", "prior"), q.get("sparked_by_id", ""))
+        about = (q.get("problem_id") or "").strip()
+        if about.lower().startswith("new:"):
+            about = new_problem_ids.get(about[4:].strip().lower(), "")
+        if about and store.get(conn, "problems", about) is None:
+            about = ""
+        if not about and not question.get("problem_id") and created["problems"]:
+            # a run that proposes candidates and opens questions about them: tie each to the one it names
+            about = best_match(q["title"] + " " + (q.get("body") or ""),
+                               [store.get(conn, "problems", x) for x in created["problems"]]) or ""
         nq = store.insert(
             conn, "questions", kind=q["kind"], lane=q["lane"], status="open", title=q["title"],
-            body=q.get("body"), parent_id=qid, problem_id=question.get("problem_id"),
+            body=q.get("body"), parent_id=qid, problem_id=about or question.get("problem_id"),
             domains=question.get("domains"), priority=_clamp(q.get("priority", 0.5)), created_by_run=run_id,
             origin=origin, origin_id=origin_id,
         )
