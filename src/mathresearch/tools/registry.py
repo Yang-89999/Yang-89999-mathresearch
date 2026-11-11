@@ -152,6 +152,8 @@ def _follow(args: dict[str, Any], ctx: ToolContext) -> str:
     u = store.get(ctx.conn, "units", args["unit_id"])
     if not u:
         return f"No unit with id {args['unit_id']}"
+    ctx.reads.append({"source_id": u.get("source_id"), "level": "follow", "unit_id": u["id"],
+                      "section": (u.get("anchor") or {}).get("section") or ""})
     src = store.get(ctx.conn, "sources", u["source_id"]) if u.get("source_id") else None
     section = (u.get("anchor") or {}).get("section")
     out = [_unit_line(u, 800) + (f"\n  in: {src['title']}" if src else "") + (f", section {section}" if section else "")]
@@ -192,6 +194,8 @@ def _open_unit(args: dict[str, Any], ctx: ToolContext) -> str:
     u = store.get(ctx.conn, "units", args["unit_id"])
     if not u:
         return f"No unit with id {args['unit_id']}"
+    ctx.reads.append({"source_id": u.get("source_id"), "level": "unit", "unit_id": u["id"],
+                      "section": (u.get("anchor") or {}).get("section") or ""})
     src = store.get(ctx.conn, "sources", u["source_id"]) if u.get("source_id") else None
     out = {k: u.get(k) for k in ("id", "kind", "label", "title", "statement", "hypotheses", "notation",
                                   "proof_sketch", "depends_on", "anchor", "computational_notes")}

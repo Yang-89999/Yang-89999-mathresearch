@@ -55,3 +55,25 @@ def test_cli_report(tmp_path, capsys):
     assert "Claim one about quivers" in capsys.readouterr().out
     assert main(["--dir", str(tmp_path), "report", "problems"]) == 0
     assert "Planted subrepresentation" in capsys.readouterr().out
+
+
+def test_reads_report_shows_depth_per_run(tmp_path):
+    conn = db.connect(tmp_path / "r.db")
+    sid = store.insert(conn, "sources", kind="paper", title="A paper on quivers")
+    deep_q = store.insert(conn, "questions", kind="investigate", lane="deepen", status="closed", title="Deep one",
+                          priority=0.5, origin="reference", origin_id=sid)
+    shallow_q = store.insert(conn, "questions", kind="investigate", lane="deepen", status="closed",
+                             title="Shallow one", priority=0.5, origin="reference", origin_id=sid)
+    store.insert(conn, "runs", question_id=deep_q, lane="deepen", status="done", started_at="2026-01-01T00:00:00Z",
+                 context_ids={"reads": [{"source_id": sid, "level": "card", "section": "", "purpose": ""},
+                                        {"source_id": sid, "level": "section", "section": "3 Attack",
+                                         "purpose": "check the rank argument"}]})
+    store.insert(conn, "runs", question_id=shallow_q, lane="deepen", status="done",
+                 started_at="2026-01-02T00:00:00Z",
+                 context_ids={"reads": [{"source_id": sid, "level": "card", "section": "", "purpose": ""}]})
+    text = report.reads(conn)
+    assert "1 of 2 runs opened a section or unit" in text
+    assert "- section: A paper on quivers | 3 Attack | why: check the rank argument" in text
+    assert f"origin source {sid}: 1 sections or units opened" in text
+    assert f"origin source {sid}: text NOT opened in this run" in text
+    assert main(["--dir", str(tmp_path), "report", "reads"]) in (0, 1)

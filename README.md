@@ -88,6 +88,7 @@ To read what the runs produced:
 mathresearch --dir ~/research report runs --last 5   # summaries, findings, reading notes, new questions
 mathresearch --dir ~/research report problems         # candidate problems by ladder status
 mathresearch --dir ~/research report questions        # the agenda by priority
+mathresearch --dir ~/research report reads --last 10  # what each run opened and how deep (card, outline, section, unit)
 mathresearch --dir ~/research report runs --last 20 > ~/research/report.md   # save as Markdown
 mathresearch --dir ~/research report trend            # discovery metrics per day (--by batch --batch 20)
 ```
