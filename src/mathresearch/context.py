@@ -12,7 +12,7 @@ import re
 import sqlite3
 from typing import Any
 
-from . import reading, store
+from . import novelty, reading, store
 from .charter import Charter
 from .reflect import digest_for_context
 
@@ -104,6 +104,10 @@ find as findings and questions; do not force a cryptographic reading.
 
 
 KIND_INSTRUCTIONS = {
+    "novelty_check": """
+# This is a known-result check
+""" + novelty.SCOPE + """
+""",
     "attack": """
 # This is an attack question
 The deliverable is a verified attack or a verified negative result, not an argument. Work in this order:

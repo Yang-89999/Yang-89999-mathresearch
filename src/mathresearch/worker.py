@@ -19,12 +19,20 @@ from . import pricing, store, writeback
 from .charter import Charter
 from .context import system_prompt, user_prompt
 from .providers.base import ChatRequest, Message, Provider, TextBlock, ToolResultBlock, Usage
-from . import lessons
+from . import agenda, lessons
 from .tools import registry
 
 EFFORT_BY_LANE = {"harvest": "low", "deepen": "high", "open": "medium"}
 MAX_TOKENS_BY_LANE = {"harvest": 8000, "deepen": 16000, "open": 12000}
 STEPS_BY_LANE = {"harvest": 12, "deepen": 24, "open": 16}   # model calls per run, unless the caller sets max_steps
+
+# A known-result check compares a candidate with what is known: it reads and argues, it does not attack. The
+# first checks ran experiments instead, hit the token cap twice in a row and left the check open; attacks have
+# their own questions. So a check gets no lab tools, fewer steps, less effort and half the token cap.
+LAB_TOOLS = frozenset({"sample_instance", "submit_attack", "run_attack", "ladder_evaluate", "run_script"})
+CHECK_STEPS = 12
+CHECK_EFFORT = "medium"
+CHECK_TOKEN_SHARE = 0.5
 
 STEP_BUDGET = ("Step budget: this run may make {n} model calls (each reply of yours is one, whether it calls tools "
                "or not). Plan your reading and experiments to fit, and return the write-back JSON before they run "
@@ -60,8 +68,13 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
     if max_usd is not None and (budget.max_usd_per_run is None or max_usd < budget.max_usd_per_run):
         budget = dataclasses.replace(budget, max_usd_per_run=max_usd)
     lane = question["lane"]
+    is_check = question.get("kind") == "novelty_check"
     if max_steps is None:
-        max_steps = STEPS_BY_LANE.get(lane, 12)
+        max_steps = CHECK_STEPS if is_check else STEPS_BY_LANE.get(lane, 12)
+    effort = CHECK_EFFORT if is_check else EFFORT_BY_LANE.get(lane)
+    tool_names = [n for n in registry.TOOLS if not (is_check and n in LAB_TOOLS)]
+    if is_check and budget.max_tokens_per_run:
+        budget = dataclasses.replace(budget, max_tokens_per_run=int(budget.max_tokens_per_run * CHECK_TOKEN_SHARE))
     model_id = model or getattr(provider, "model", None) or provider.default_model
     run_id = store.insert(conn, "runs", question_id=question["id"], lane=lane, provider=provider.name,
                           model=model_id, status="running")
@@ -81,9 +94,9 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
         while steps < max_steps + (1 if budget_note else 0):
             steps += 1
             response = provider.complete(ChatRequest(
-                system=system, messages=messages, tools=registry.specs(),
+                system=system, messages=messages, tools=registry.specs(tool_names),
                 output_schema=writeback.WRITEBACK_SCHEMA, model=model,
-                max_tokens=MAX_TOKENS_BY_LANE.get(lane, 12000), effort=EFFORT_BY_LANE.get(lane),
+                max_tokens=MAX_TOKENS_BY_LANE.get(lane, 12000), effort=effort,
             ))
             usage.add(response.usage)
             messages.append(response.as_message())
@@ -98,6 +111,10 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
                 for call in response.tool_calls:
                     if over:
                         text, is_error = f"Not run: {over}.", True
+                    elif call.name in registry.TOOLS and call.name not in tool_names:
+                        text, is_error = (f"{call.name} is not available in a known-result check: compare and "
+                                          "cite; attacks and experiments belong to the candidate's attack "
+                                          "questions."), True
                     else:
                         text, is_error = registry.execute(call.name, call.input, ctx)
                     results.append(ToolResultBlock(tool_use_id=call.id, content=text, is_error=is_error))
@@ -149,7 +166,11 @@ def run_question(conn: sqlite3.Connection, charter: Charter, provider: Provider,
 
     if data is not None and error is None:
         try:
-            created = writeback.apply(conn, run_id, question, writeback.validate(data))
+            room = None
+            if charter.candidate_target and question.get("kind") != "propose":
+                room = max(0, charter.candidate_target - len(agenda.in_play(conn)))
+            created = writeback.apply(conn, run_id, question, writeback.validate(data), reads=ctx.reads,
+                                      candidate_room=room)
         except writeback.WritebackError as exc:
             error, created = f"invalid write-back: {exc}", {"findings": [], "questions": [], "problems": [],
                                                               "notes": [], "cards": [], "warnings": []}

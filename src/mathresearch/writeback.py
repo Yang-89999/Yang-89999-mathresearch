@@ -72,6 +72,10 @@ WRITEBACK_SCHEMA: dict[str, Any] = {
         },
         "candidate_problems": {
             "type": "array",
+            "description": "New candidate problems. A candidate sparked by a reference enters play only if this "
+                           "run opened that reference's text (a section or a statement, not only its card or "
+                           "outline); and outside a propose question only while the charter's target of "
+                           "candidates in play is not reached. Otherwise it is kept as a question.",
             "items": {
                 "type": "object",
                 "properties": {
@@ -192,7 +196,46 @@ def validate(data: Any) -> dict[str, Any]:
     return data
 
 
-def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+TEXT_LEVELS = ("section", "unit", "follow")
+HELD_PRIORITY = 0.55
+
+
+def _hold_reason(conn: sqlite3.Connection, origin: str, origin_id: str | None, reads: list[dict[str, Any]] | None,
+                 room: int | None, taken: int) -> str | None:
+    """Why a proposed candidate is kept as a question instead of entering play, or None.
+
+    Two rules. A candidate sparked by a reference counts only when this run opened that reference's text (a
+    section or a statement): three surveys once proposed candidates having read summary cards alone. And
+    outside a propose question, candidates enter play only while fewer than the charter's target are there:
+    16 were once in play against a target of 5, and none was ever defined or attacked."""
+    if reads is not None and origin == "reference" and origin_id:
+        src = store.get(conn, "sources", origin_id)
+        readable = src and (store.select(conn, "units", "source_id = ?", (origin_id,), limit=1) or conn.execute(
+            "SELECT 1 FROM source_sections WHERE source_id = ? LIMIT 1", (origin_id,)).fetchone())
+        if readable and not any(r.get("source_id") == origin_id and r.get("level") in TEXT_LEVELS for r in reads):
+            return (f"it names {origin_id} as its spark, but this run opened only that source's card or outline: "
+                    f"read the sections it rests on, then propose it")
+    if room is not None and taken >= room:
+        return "enough candidates are in play already; it waits for a propose question"
+    return None
+
+
+def _hold(conn: sqlite3.Connection, p: dict[str, Any], why: str, qid: str, run_id: str, question: dict[str, Any],
+          origin: str, origin_id: str | None) -> str:
+    fields = "\n".join(f"{k}: {p[k]}" for k in ("objects", "forward_map", "distribution", "hidden", "verification",
+                                               "known_relatives") if p.get(k))
+    return store.insert(
+        conn, "questions", kind="explore", lane="deepen" if origin == "reference" else "open", status="open",
+        title=f"Idea held back: {p['name']}"[:200],
+        body=f"A run proposed this candidate; it was not put in play because {why}.\n{fields}",
+        parent_id=qid, domains=question.get("domains"), priority=HELD_PRIORITY, created_by_run=run_id,
+        origin=origin, origin_id=origin_id)
+
+
+def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data: dict[str, Any],
+          reads: list[dict[str, Any]] | None = None, candidate_room: int | None = None) -> dict[str, Any]:
+    """``reads`` is the run's tool-side read log and ``candidate_room`` how many more candidates may enter
+    play from this run; without them (None) the two holding rules are off."""
     """Persist a validated write-back. Returns ids of what was created."""
     qid = question["id"]
     created: dict[str, list[str]] = {"findings": [], "questions": [], "problems": [], "notes": [], "cards": [],
@@ -230,6 +273,11 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
     new_problem_ids: dict[str, str] = {}
     for p in data["candidate_problems"]:
         origin, origin_id = reading.resolve_origin(conn, p.get("sparked_by", "prior"), p.get("sparked_by_id", ""))
+        why = _hold_reason(conn, origin, origin_id, reads, candidate_room, len(created["problems"]))
+        if why:
+            created["questions"].append(_hold(conn, p, why, qid, run_id, question, origin, origin_id))
+            created["warnings"].append(f"candidate '{p['name'][:60]}' kept as a question: {why}")
+            continue
         pid = store.insert(
             conn, "problems", name=p["name"], status="idea",
             domains=[d.strip() for d in p.get("domains", "").split(",") if d.strip()],
@@ -255,6 +303,7 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
         created["questions"].append(novelty.open_check(conn, pid, run_id=run_id,
                                                        relatives_note=p.get("known_relatives") or None))
 
+    counted = False
     for c in data.get("novelty_checks", []):
         target = (c.get("problem_id") or "").strip()
         if target.lower().startswith("new:"):
@@ -264,6 +313,8 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
                                  c.get("argument", ""), run_id, question)
         if warning:
             created["warnings"].append(warning)
+        elif target == question.get("problem_id"):
+            counted = True
 
     audits: dict[str, list[dict[str, Any]]] = {}
     for a in data.get("weakness_audits", []):
@@ -298,6 +349,18 @@ def apply(conn: sqlite3.Connection, run_id: str, question: dict[str, Any], data:
             blocked = True
 
     status = data["status"]
+    if question.get("kind") == "novelty_check" and question.get("problem_id") and status not in ("closed", "abandoned"):
+        # A check ends with its verdict. One that keeps reopening takes the lab's runs (one check ran twice to
+        # the token cap and stayed open); after two runs without a verdict the operator's own check decides.
+        if counted:
+            status = "closed"
+        elif (question.get("runs") or 0) + 1 >= 2:
+            note = ("No verdict after two check runs; nothing equivalent was established. Last summary: "
+                    + " ".join(data["summary"].split())[:1200])
+            novelty.record(conn, question["problem_id"], "no_relative_found", None, note, run_id, question)
+            status = "closed"
+            created["warnings"].append("known-result check closed after two runs without a verdict: recorded as "
+                                       "no relative found, for the operator to double-check")
     if question.get("kind") == "propose" and status == "closed" and not created["problems"]:
         negative = any(f["kind"] == "negative" for f in data["findings"])
         if not negative:

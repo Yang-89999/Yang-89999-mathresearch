@@ -587,6 +587,7 @@ def cmd_ingest_relink(args: argparse.Namespace) -> int:
     conn = db.connect(_workspace(args) / DB_FILE)
     res = ingest.relink(conn, args.source_id)
     print(f"relinked {res['sources']} LaTeX sources ({res['units']} units): {res['links']} references resolved"
+          + (f"; prose kept in {res['sections']} sections" if res.get("sections") else "")
           + (f"; skipped {len(res['skipped'])} without LaTeX files" if res["skipped"] else ""))
     return 0
 

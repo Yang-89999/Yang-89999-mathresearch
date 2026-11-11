@@ -146,7 +146,22 @@ def ingest_latex_dir(conn: sqlite3.Connection, root: Path, *, title: str | None 
     note = f"{len(doc.environments)} theorem-like environments recognised"
     if doc.bibliography:
         note += f"; {len(doc.bibliography)} bibliography entries"
-    return _finish(conn, source_id, title, "latex", doc.units, domains, note, bib=doc.bibliography)
+    res = _finish(conn, source_id, title, "latex", doc.units, domains, note, bib=doc.bibliography)
+    n = store_sections(conn, source_id, doc.sections)
+    if n:
+        res.note = ((res.note + "; ") if res.note else "") + f"prose kept in {n} sections"
+    return res
+
+
+def store_sections(conn: sqlite3.Connection, source_id: str, sections: list[tuple[str, str]]) -> int:
+    """Replace a source's stored prose with ``sections`` (heading, text). Nothing changes when there is none."""
+    if not sections:
+        return 0
+    conn.execute("DELETE FROM source_sections WHERE source_id = ?", (source_id,))
+    conn.executemany("INSERT INTO source_sections (source_id, idx, title, text) VALUES (?, ?, ?, ?)",
+                     [(source_id, i, t[:200], body) for i, (t, body) in enumerate(sections)])
+    conn.commit()
+    return len(sections)
 
 
 def ingest_text(conn: sqlite3.Connection, text: str, *, title: str, path: str | None = None, fmt: str = "text",
@@ -466,7 +481,7 @@ __all__ = ["IngestResult", "find_source", "ingest_arxiv", "ingest_eprint", "inge
 
 def relink(conn: sqlite3.Connection, source_id: str | None = None) -> dict[str, Any]:
     """Re-read the LaTeX of already-ingested sources and fill in what older ingestion did not record:
-    depends_on (resolved \\ref links), cites, proofs, the bibliography. Units keep their ids (matched by
+    depends_on (resolved \\ref links), cites, proofs, the bibliography, the prose of each section. Units keep their ids (matched by
     file and line); nothing is deleted. Sources whose files are gone are skipped."""
     where, params = ("id = ?", (source_id,)) if source_id else ("format = 'latex'", ())
     out: dict[str, Any] = {"sources": 0, "units": 0, "links": 0, "skipped": []}
@@ -497,6 +512,7 @@ def relink(conn: sqlite3.Connection, source_id: str | None = None) -> dict[str, 
         out["links"] += link_units(conn, units, ids)
         if doc.bibliography:
             store.update(conn, "sources", src["id"], bibliography=doc.bibliography)
+        out["sections"] = out.get("sections", 0) + store_sections(conn, src["id"], doc.sections)
         out["sources"] += 1
         out["units"] += len(ids)
     return out

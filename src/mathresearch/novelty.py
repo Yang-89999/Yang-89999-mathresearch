@@ -107,13 +107,20 @@ def closest_known(conn: sqlite3.Connection, problem: dict[str, Any], k: int = 5)
     return [{"id": i, "name": names[i], "score": round(scores[i], 3)} for i in best]
 
 
+SCOPE = ("This is a check, not an attack: read and argue; run no experiments and try no attacks (the candidate has "
+         "its own attack questions, and the lab tools are not available here). Open the sections that state the "
+         "nearest known problem (not only cards and outlines) and compare definitions. Record a verdict in this "
+         "run: when the last doubt cannot be settled, record the closest non-rejecting relation and name exactly "
+         "what the operator should verify by hand. A check that records nothing is closed after its second run.")
+
+
 def _check_body(problem: dict[str, Any], closest: list[dict[str, Any]], relatives_note: str | None) -> str:
     listing = "\n".join(f"- {c['id']}: {c['name']}" for c in closest) or "- (no catalog problem shares its vocabulary)"
     return (f"Candidate {problem['id']} ('{problem['name']}') was proposed in run {problem.get('created_by_run')}. "
             f"Your job is adversarial: try to show it is a known problem in disguise.\n"
             f"Closest known problems by structure:\n{listing}\n"
             + (f"The proposer named these relatives: {relatives_note}\n" if relatives_note else "")
-            + "The only rejection is 'equivalent': instance maps both ways that keep the distribution. A special "
+            + SCOPE + " The only rejection is 'equivalent': instance maps both ways that keep the distribution. A special "
             "case of a known problem, a reduction to one such as MQ, or a paper that has the problem or its "
             "underlying object is not a rejection: record it as special_case, reduces_to_known or "
             "known_in_literature (with the exact citation), and say which known attack it suggests running. The "
